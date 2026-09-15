@@ -54,9 +54,18 @@ def run_simulation():
         right = str(data.get('right', 0))
         mode = str(data.get('mode', 'fdm'))
         alpha = str(data.get('alpha', 0.01))
+        
+        # Point source parameters
+        has_ps = data.get('hasPointSource', False)
+        ps_r = str(data.get('psR', 0))
+        ps_c = str(data.get('psC', 0))
+        ps_temp = str(data.get('psTemp', 0))
 
         # Execute the C++ binary
         cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha]
+        if has_ps:
+            cmd.extend([ps_r, ps_c, ps_temp])
+            
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         # Return the latest state by default

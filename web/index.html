@@ -67,9 +67,30 @@
                         </div>
                     </div>
 
+                    <div class="input-group">
+                        <label>Point Source Origin</label>
+                        <div class="ps-controls">
+                            <div class="ps-toggle">
+                                <input type="checkbox" id="hasPointSource">
+                                <label for="hasPointSource">Enable Point Source</label>
+                            </div>
+                            <div id="ps-params" class="ps-inputs hidden">
+                                <div class="ps-coord-group">
+                                    <input type="number" id="psR" placeholder="Row (X)" value="10">
+                                    <input type="number" id="psC" placeholder="Col (Y)" value="10">
+                                </div>
+                                <input type="number" id="psTemp" placeholder="Temperature (°C)" value="100">
+                            </div>
+                        </div>
+                    </div>
+
                     <div id="time-evolution-ctrl" class="input-group hidden">
-                        <label for="timeSlider">Time Evolution (Step: <span id="timeVal">0</span>)</label>
-                        <input type="range" id="timeSlider" min="0" max="1000" value="0" class="slider">
+                        <label for="timeSlider">Time Evolution (Time: <span id="timeVal">0</span>s)</label>
+                        <input type="range" id="timeSlider" min="1" max="1000" value="1" class="slider">
+                        <div class="slider-labels">
+                            <span>1s</span>
+                            <span>1000s</span>
+                        </div>
                     </div>
 
                     <button id="runBtn" class="primary-btn">Run Simulation</button>

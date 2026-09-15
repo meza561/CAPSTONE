@@ -19,21 +19,28 @@ document.addEventListener('DOMContentLoaded', () => {
         bottom: document.getElementById('bottom'),
         left: document.getElementById('left'),
         right: document.getElementById('right'),
+        hasPS: document.getElementById('hasPointSource'),
+        psR: document.getElementById('psR'),
+        psC: document.getElementById('psC'),
+        psTemp: document.getElementById('psTemp'),
     };
 
-    const timeCtrl = document.getElementById('time-evolution-ctrl');
-    const timeSlider = document.getElementById('timeSlider');
-    const timeVal = document.getElementById('timeVal');
-
-    const pdeParamsDiv = document.getElementById('pde-params');
-
-    inputs.mode.addEventListener('change', () => {
-        pdeParamsDiv.classList.toggle('hidden', inputs.mode.value !== 'pde');
+    const psParamsDiv = document.getElementById('ps-params');
+    inputs.hasPS.addEventListener('change', () => {
+        psParamsDiv.classList.toggle('hidden', !inputs.hasPS.checked);
     });
 
     timeSlider.addEventListener('input', async () => {
-        const step = timeSlider.value;
-        timeVal.textContent = step;
+        const realTime = parseInt(timeSlider.value);
+        timeVal.textContent = realTime;
+        
+        // Temporal Scaling Logic:
+        // Simulation time t = step * dt
+        // Step = t / dt
+        // Using a default dt = 0.1 (as in main.cpp), and assuming 1s = 10 steps.
+        // To be accurate, the server should probably provide dt, but we'll use the sim default.
+        const dt = 0.1;
+        const step = Math.floor(realTime / dt);
         
         try {
             const response = await fetch(`/run?time=${step}`);
@@ -93,6 +100,10 @@ document.addEventListener('DOMContentLoaded', () => {
             bottom: parseFloat(inputs.bottom.value),
             left: parseFloat(inputs.left.value),
             right: parseFloat(inputs.right.value),
+            hasPointSource: inputs.hasPS.checked,
+            psR: parseInt(inputs.psR.value),
+            psC: parseInt(inputs.psC.value),
+            psTemp: parseFloat(inputs.psTemp.value),
         };
 
         statusText.textContent = 'Running simulation on server...';
@@ -111,13 +122,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const heatmapData = result.data;
 
             drawHeatmap(heatmapData);
-            statusText.textContent = `Complete! Step ${heatmapData.step} (${heatmapData.rows}x${heatmapData.cols})`;
+            statusText.textContent = `Complete! Max Step ${heatmapData.step} (${heatmapData.rows}x${heatmapData.cols})`;
             
             if (inputs.mode.value === 'fdm') {
                 timeCtrl.classList.remove('hidden');
-                timeSlider.max = heatmapData.step;
-                timeSlider.value = heatmapData.step;
-                timeVal.textContent = heatmapData.step;
+                // The slider now represents seconds (1 to 1000).
+                // We ensure the max is limited by the simulation's actual convergence/max steps.
+                const dt = 0.1;
+                const maxSeconds = heatmapData.step * dt;
+                timeSlider.max = Math.min(1000, Math.floor(maxSeconds));
+                timeSlider.value = Math.min(1000, Math.floor(maxSeconds));
+                timeVal.textContent = timeSlider.value;
             } else {
                 timeCtrl.classList.add('hidden');
             }
@@ -150,10 +165,13 @@ document.addEventListener('DOMContentLoaded', () => {
         history.forEach((item, index) => {
             const row = document.createElement('tr');
             const p = item.params;
+            const originType = p.hasPointSource ? 'Point' : 'Edge';
             row.innerHTML = `
                 <td>${item.date}</td>
                 <td>${p.rows}x${p.cols}</td>
-                <td>${p.top},${p.bottom},${p.left},${p.right}</td>
+                <td title="T:${p.top}, B:${p.bottom}, L:${p.left}, R:${p.right}">
+                    ${originType} ${p.hasPointSource ? `(${p.psR},${p.psC})` : 'Boundaries'}
+                </td>
                 <td>${item.steps}</td>
                 <td><button class="view-btn" data-index="${index}">View</button></td>
             `;
@@ -173,8 +191,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 inputs.bottom.value = item.params.bottom;
                 inputs.left.value = item.params.left;
                 inputs.right.value = item.params.right;
+                inputs.hasPS.checked = item.params.hasPointSource || false;
+                inputs.psR.value = item.params.psR || 0;
+                inputs.psC.value = item.params.psC || 0;
+                inputs.psTemp.value = item.params.psTemp || 0;
 
                 pdeParamsDiv.classList.toggle('hidden', item.params.mode !== 'pde');
+                psParamsDiv.classList.toggle('hidden', !inputs.hasPS.checked);
 
                 drawHeatmap(item.data);
                 document.querySelector('[data-tab="sim-tab"]').click();

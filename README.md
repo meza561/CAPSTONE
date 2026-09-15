@@ -30,8 +30,17 @@ This script will:
 ### Initial Conditions (FDM)
 Uses the Finite Difference Method to iteratively solve the heat equation. This mode allows for arbitrary boundary temperatures and simulates the time-evolution of the heat spread.
 
+**Point Source Support:** You can now enable a "Point Source" to simulate a specific heat origin at coordinates $(X, Y)$ on the plate, which acts as a constant temperature source.
+
 ### PDE-driven (Analytical)
 Calculates the steady-state solution using the general solution for the heat equation on a rectangular plate. It uses a Fourier series approximation to determine the temperature at any given point $(x, y)$ based on the boundary conditions.
+
+## Temporal Scaling
+The time slider has been updated to represent real-world seconds (1s to 1000s). 
+
+The simulation maps iterative steps ($\Delta t$) to actual time using the formula:
+$$t_{real} = \text{step} \times \Delta t$$
+Where $\Delta t$ is the time step used in the C++ engine (default $0.1\text{s}$). The visualization updates the heatmap by fetching the timestep corresponding to the selected real-world second.
 
 ## API Endpoints
 - `GET /`: Serves the frontend.

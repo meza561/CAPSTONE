@@ -13,6 +13,11 @@
 
 class HeatSimulation {
 public:
+    struct PointSource {
+        int r, c;
+        double temp;
+    };
+
     HeatSimulation(int rows, int cols, double alpha, double dx, double dt) 
         : rows(rows), cols(cols), alpha(alpha), dx(dx), dt(dt) {
         grid.resize(rows, std::vector<double>(cols, 0.0));
@@ -26,8 +31,9 @@ public:
         }
     }
 
-    void setInitialTemp(int r, int c, double temp) {
+    void addPointSource(int r, int c, double temp) {
         if (r >= 0 && r < rows && c >= 0 && c < cols) {
+            pointSources.push_back({r, c, temp});
             grid[r][c] = temp;
         }
     }
@@ -45,6 +51,12 @@ public:
                 maxDiff = std::max(maxDiff, std::abs(nextGrid[i][j] - grid[i][j]));
             }
         }
+
+        // Enforce Point Sources (Dirichlet)
+        for (const auto& ps : pointSources) {
+            nextGrid[ps.r][ps.c] = ps.temp;
+        }
+
         grid = nextGrid;
         return maxDiff;
     }
@@ -92,6 +104,7 @@ private:
     double alpha, dx, dt;
     std::vector<std::vector<double>> grid;
     std::vector<std::vector<double>> nextGrid;
+    std::vector<PointSource> pointSources;
 };
 
 void exportToJSON(const std::string& filename, int step, int rows, int cols, const std::vector<std::vector<double>>& grid) {
@@ -117,13 +130,18 @@ int main(int argc, char* argv[]) {
     double ALPHA = 0.01;
     double DX = 1.0;
     double DT = 0.1;
-    int MAX_STEPS = 1000;
+    int MAX_STEPS = 10000; // Increased to support longer real-time scales
     double CONVERGENCE_THRESHOLD = 1e-4;
     double topTemp = 100.0;
     double bottomTemp = 0.0;
     double leftTemp = 0.0;
     double rightTemp = 0.0;
     std::string mode = "fdm";
+
+    // Point source params
+    bool hasPointSource = false;
+    int psR = 0, psC = 0;
+    double psTemp = 0.0;
 
     if (argc >= 7) {
         ROWS = std::stoi(argv[1]);
@@ -134,6 +152,12 @@ int main(int argc, char* argv[]) {
         rightTemp = std::stod(argv[6]);
         if (argc >= 8) mode = argv[7];
         if (argc >= 9) ALPHA = std::stod(argv[8]);
+        if (argc >= 12) {
+            hasPointSource = true;
+            psR = std::stoi(argv[9]);
+            psC = std::stoi(argv[10]);
+            psTemp = std::stod(argv[11]);
+        }
     }
 
     HeatSimulation sim(ROWS, COLS, ALPHA, DX, DT);
@@ -151,6 +175,10 @@ int main(int argc, char* argv[]) {
         for (int j = 0; j < COLS; ++j) sim.setBoundary(ROWS - 1, j, bottomTemp);
         for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, 0, leftTemp);
         for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, COLS - 1, rightTemp);
+
+        if (hasPointSource) {
+            sim.addPointSource(psR, psC, psTemp);
+        }
 
         std::cout << "Starting FDM Simulation (" << ROWS << "x" << COLS << ")...\n";
         
