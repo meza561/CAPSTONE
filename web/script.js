@@ -73,10 +73,28 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.height = rows;
         const imageData = ctx.createImageData(cols, rows);
 
+        // Calculate dynamic scale
+        let min = Infinity;
+        let max = -Infinity;
+        for (let i = 0; i < rows; i++) {
+            for (let j = 0; j < cols; j++) {
+                const val = grid[i][j];
+                if (val < min) min = val;
+                if (val > max) max = val;
+            }
+        }
+
+        // Update legend
+        document.getElementById('legendMin').textContent = `${min.toFixed(1)}°C`;
+        document.getElementById('legendMax').textContent = `${max.toFixed(1)}°C`;
+
+        const range = max - min || 1;
+
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
                 const temp = grid[i][j];
-                const t = Math.max(0, Math.min(1, temp / 100));
+                const t = (temp - min) / range;
+                
                 const r = Math.floor(t > 0.5 ? (t - 0.5) * 2 * 255 : 0);
                 const b = Math.floor(t < 0.5 ? (0.5 - t) * 2 * 255 : 0);
                 const g = Math.floor((1 - Math.abs(t - 0.5) * 2) * 255);

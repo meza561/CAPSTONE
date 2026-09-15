@@ -137,14 +137,16 @@ body {
 
 .temp-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 16px;
+    width: 100%;
 }
 
 .temp-field {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    min-width: 0;
 }
 
 .temp-field label {
@@ -160,6 +162,8 @@ input[type="number"] {
     font-size: 1rem;
     transition: border-color 0.2s;
     background: #fafafa;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 input[type="number"]:focus {
