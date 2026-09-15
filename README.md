@@ -38,6 +38,7 @@ Calculates the steady-state solution using the general solution for the heat equ
 - `POST /run`: Executes a simulation.
   - **Payload**: `{ "rows": 20, "cols": 20, "top": 100, "bottom": 0, "left": 0, "right": 0, "mode": "fdm", "alpha": 0.01 }`
   - **Response**: JSON containing simulation status and the final grid data.
+- `GET /run?time=X`: Retrieves the simulation state at timestep X.
 
 ## Project Structure
 - `main.cpp`: C++ Simulation logic.

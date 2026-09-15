@@ -144,6 +144,7 @@ int main(int argc, char* argv[]) {
     if (mode == "pde") {
         std::cout << "Running Analytical PDE Solver...\n";
         sim.solveAnalytical(topTemp, bottomTemp, leftTemp, rightTemp);
+        db.saveTimestep(0, sim.getGrid());
         exportToJSON("latest_heatmap.json", 0, ROWS, COLS, sim.getGrid());
     } else {
         for (int j = 0; j < COLS; ++j) sim.setBoundary(0, j, topTemp);

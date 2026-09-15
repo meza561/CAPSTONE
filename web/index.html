@@ -67,6 +67,11 @@
                         </div>
                     </div>
 
+                    <div id="time-evolution-ctrl" class="input-group hidden">
+                        <label for="timeSlider">Time Evolution (Step: <span id="timeVal">0</span>)</label>
+                        <input type="range" id="timeSlider" min="0" max="1000" value="0" class="slider">
+                    </div>
+
                     <button id="runBtn" class="primary-btn">Run Simulation</button>
                     <div id="status" class="status-display">Ready to simulate</div>
                 </section>

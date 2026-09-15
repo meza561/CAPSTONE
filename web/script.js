@@ -21,10 +21,28 @@ document.addEventListener('DOMContentLoaded', () => {
         right: document.getElementById('right'),
     };
 
+    const timeCtrl = document.getElementById('time-evolution-ctrl');
+    const timeSlider = document.getElementById('timeSlider');
+    const timeVal = document.getElementById('timeVal');
+
     const pdeParamsDiv = document.getElementById('pde-params');
 
     inputs.mode.addEventListener('change', () => {
         pdeParamsDiv.classList.toggle('hidden', inputs.mode.value !== 'pde');
+    });
+
+    timeSlider.addEventListener('input', async () => {
+        const step = timeSlider.value;
+        timeVal.textContent = step;
+        
+        try {
+            const response = await fetch(`/run?time=${step}`);
+            if (!response.ok) throw new Error('Failed to fetch timestep');
+            const data = await response.json();
+            drawHeatmap(data);
+        } catch (e) {
+            console.error('Slider error:', e);
+        }
     });
 
     tabBtns.forEach(btn => {
@@ -94,6 +112,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
             drawHeatmap(heatmapData);
             statusText.textContent = `Complete! Step ${heatmapData.step} (${heatmapData.rows}x${heatmapData.cols})`;
+            
+            if (inputs.mode.value === 'fdm') {
+                timeCtrl.classList.remove('hidden');
+                timeSlider.max = heatmapData.step;
+                timeSlider.value = heatmapData.step;
+                timeVal.textContent = heatmapData.step;
+            } else {
+                timeCtrl.classList.add('hidden');
+            }
 
             saveToHistory({
                 date: new Date().toLocaleString(),

@@ -12,8 +12,8 @@ cd ..
 
 # 2. Launch the Python Flask server in the background
 echo "Launching Web Server on http://127.0.0.1:5000..."
-# Ensure flask and flask-cors are installed
-pip install flask flask-cors --quiet
+# Install dependencies from requirements.txt
+pip install -r requirements.txt --quiet
 
 # Use nohup to keep it running and redirect logs to server.log
 nohup python3 server.py > server.log 2>&1 &

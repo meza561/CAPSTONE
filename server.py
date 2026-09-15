@@ -3,6 +3,7 @@ import subprocess
 import json
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+import sqlite3
 
 app = Flask(__name__)
 CORS(app)
@@ -10,6 +11,28 @@ CORS(app)
 # Path to the compiled C++ binary
 SIM_BINARY = "./heat_sim"
 WEB_DIR = "./web"
+DB_NAME = "heat_sim.db"
+
+def get_grid_from_db(step):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    # Assuming the table structure stores points as (step, x, y, temp)
+    cursor.execute("SELECT x, y, temp FROM timesteps WHERE step = ? ORDER BY x, y", (step,))
+    rows_data = cursor.fetchall()
+    conn.close()
+    
+    if not rows_data:
+        return None
+
+    # Determine grid dimensions
+    max_x = max(r[0] for r in rows_data) + 1
+    max_y = max(r[1] for r in rows_data) + 1
+    
+    grid = [[0.0 for _ in range(max_y)] for _ in range(max_x)]
+    for x, y, temp in rows_data:
+        grid[x][y] = temp
+        
+    return {"step": step, "rows": max_x, "cols": max_y, "data": grid}
 
 @app.route('/')
 def index():
@@ -36,7 +59,7 @@ def run_simulation():
         cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
-        # The binary writes to latest_heatmap.json
+        # Return the latest state by default
         with open('latest_heatmap.json', 'r') as f:
             heatmap_data = json.load(f)
 
@@ -45,6 +68,21 @@ def run_simulation():
             "output": result.stdout,
             "data": heatmap_data
         })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/run', methods=['GET'])
+def get_timestep():
+    try:
+        step = request.args.get('time', type=int)
+        if step is None:
+            return jsonify({"status": "error", "message": "Time parameter required"}), 400
+        
+        heatmap_data = get_grid_from_db(step)
+        if not heatmap_data:
+            return jsonify({"status": "error", "message": "Timestep not found"}), 404
+            
+        return jsonify(heatmap_data)
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
