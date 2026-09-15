@@ -1,8 +1,10 @@
 # Compiled Binaries
 heat_sim
 build/
+cmake-build-debug/
 
 # Python Virtual Environment
+.venv/
 venv/
 __pycache__/
 *.py[cod]
@@ -11,6 +13,8 @@ __pycache__/
 server.log
 latest_heatmap.json
 *.db
+*.db-wal
+*.db-shm
 
 # IDE and System files
 .idea/

@@ -13,26 +13,65 @@ SIM_BINARY = "./heat_sim"
 WEB_DIR = "./web"
 DB_NAME = "heat_sim.db"
 
+def _clamp(value, lo, hi, default):
+    """Coerce a client-supplied dimension into a sane range."""
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, v))
+
+
 def get_grid_from_db(step):
+    """Return the stored frame at or before `step`.
+
+    Timesteps are persisted at an interval (SAVE_INTERVAL in main.cpp), so an
+    arbitrary requested step is snapped down to the nearest stored frame,
+    falling back to the earliest frame available.
+    """
+    if not os.path.exists(DB_NAME):
+        return None
+
     conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    # Assuming the table structure stores points as (step, x, y, temp)
-    cursor.execute("SELECT x, y, temp FROM timesteps WHERE step = ? ORDER BY x, y", (step,))
-    rows_data = cursor.fetchall()
-    conn.close()
-    
+    try:
+        cursor = conn.cursor()
+
+        # Index-only probe against the (step, x, y) primary key.
+        cursor.execute(
+            "SELECT step FROM HeatMap WHERE step <= ? ORDER BY step DESC LIMIT 1",
+            (step,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            cursor.execute("SELECT step FROM HeatMap ORDER BY step ASC LIMIT 1")
+            row = cursor.fetchone()
+        if row is None:
+            return None
+
+        actual_step = row[0]
+        cursor.execute(
+            "SELECT x, y, temp FROM HeatMap WHERE step = ? ORDER BY x, y",
+            (actual_step,),
+        )
+        rows_data = cursor.fetchall()
+    except sqlite3.OperationalError:
+        # No simulation has been run yet, so the table does not exist.
+        return None
+    finally:
+        conn.close()
+
     if not rows_data:
         return None
 
-    # Determine grid dimensions
     max_x = max(r[0] for r in rows_data) + 1
     max_y = max(r[1] for r in rows_data) + 1
-    
-    grid = [[0.0 for _ in range(max_y)] for _ in range(max_x)]
+
+    grid = [[0.0] * max_y for _ in range(max_x)]
     for x, y, temp in rows_data:
         grid[x][y] = temp
-        
-    return {"step": step, "rows": max_x, "cols": max_y, "data": grid}
+
+    return {"step": actual_step, "rows": max_x, "cols": max_y, "data": grid}
+
 
 @app.route('/')
 def index():
@@ -46,8 +85,10 @@ def static_files(path):
 def run_simulation():
     data = request.json
     try:
-        rows = str(data.get('rows', 20))
-        cols = str(data.get('cols', 20))
+        # Bound grid size: an unbounded grid is what let the database grow
+        # to multiple gigabytes.
+        rows = str(_clamp(data.get('rows', 20), 2, 300, 20))
+        cols = str(_clamp(data.get('cols', 20), 2, 300, 20))
         top = str(data.get('top', 100))
         bottom = str(data.get('bottom', 0))
         left = str(data.get('left', 0))
@@ -101,4 +142,4 @@ if __name__ == '__main__':
         exit(1)
     
     print("Starting Heat Simulation Server on http://127.0.0.1:5000")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False)

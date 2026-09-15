@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iomanip>
 #include <string>
+#include <utility>
 #include "database.hpp"
 
 /**
@@ -57,7 +58,10 @@ public:
             nextGrid[ps.r][ps.c] = ps.temp;
         }
 
-        grid = nextGrid;
+        // O(1) buffer swap. The interior of nextGrid is fully rewritten each
+        // step and both buffers hold identical boundary values, so swapping is
+        // equivalent to the old deep copy but without reallocating rows*cols.
+        std::swap(grid, nextGrid);
         return maxDiff;
     }
 
@@ -131,6 +135,10 @@ int main(int argc, char* argv[]) {
     double DX = 1.0;
     double DT = 0.1;
     int MAX_STEPS = 10000; // Increased to support longer real-time scales
+    // The UI slider is calibrated in whole seconds and dt = 0.1s, so one saved
+    // frame per 10 steps is exactly the resolution the frontend can request.
+    // Persisting all 10000 steps wrote ~25x more rows than could ever be read.
+    int SAVE_INTERVAL = 10;
     double CONVERGENCE_THRESHOLD = 1e-4;
     double topTemp = 100.0;
     double bottomTemp = 0.0;
@@ -160,6 +168,27 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Defensive clamp: the binary is callable directly, not just via the API.
+    if (ROWS < 2) ROWS = 2;
+    if (COLS < 2) COLS = 2;
+    if (ROWS > 1000) ROWS = 1000;
+    if (COLS > 1000) COLS = 1000;
+
+    // Bound the worst-case footprint of a single run. At the default interval a
+    // run stores up to 1000 frames; on a large grid that is far more samples
+    // than the file should hold, so the interval widens to stay under budget.
+    // The server snaps a requested step to the nearest stored frame, so this
+    // only costs slider resolution on very large grids.
+    const long long SAMPLE_BUDGET = 8000000LL;
+    long long cells  = static_cast<long long>(ROWS) * COLS;
+    long long frames = MAX_STEPS / SAVE_INTERVAL;
+    if (cells * frames > SAMPLE_BUDGET) {
+        long long scale = (cells * frames + SAMPLE_BUDGET - 1) / SAMPLE_BUDGET;
+        SAVE_INTERVAL *= static_cast<int>(scale);
+        std::cout << "Large grid (" << ROWS << "x" << COLS
+                  << "): saving every " << SAVE_INTERVAL << " steps\n";
+    }
+
     HeatSimulation sim(ROWS, COLS, ALPHA, DX, DT);
     HeatDatabase db("heat_sim.db");
 
@@ -168,7 +197,9 @@ int main(int argc, char* argv[]) {
     if (mode == "pde") {
         std::cout << "Running Analytical PDE Solver...\n";
         sim.solveAnalytical(topTemp, bottomTemp, leftTemp, rightTemp);
+        db.beginRun();
         db.saveTimestep(0, sim.getGrid());
+        db.endRun();
         exportToJSON("latest_heatmap.json", 0, ROWS, COLS, sim.getGrid());
     } else {
         for (int j = 0; j < COLS; ++j) sim.setBoundary(0, j, topTemp);
@@ -182,16 +213,30 @@ int main(int argc, char* argv[]) {
 
         std::cout << "Starting FDM Simulation (" << ROWS << "x" << COLS << ")...\n";
         
+        if (!db.beginRun()) return 1;
+
         int finalStep = 0;
         for (int s = 0; s < MAX_STEPS; ++s) {
             double delta = sim.step();
-            db.saveTimestep(s, sim.getGrid());
             finalStep = s;
-            if (delta < CONVERGENCE_THRESHOLD) {
+            bool converged = delta < CONVERGENCE_THRESHOLD;
+
+            if (s % SAVE_INTERVAL == 0 || converged) {
+                db.saveTimestep(s, sim.getGrid());
+            }
+
+            if (converged) {
                 std::cout << "Converged at step " << s << "\n";
                 break;
             }
         }
+
+        // Guarantee the final state is queryable even if it fell between saves.
+        if (finalStep % SAVE_INTERVAL != 0) {
+            db.saveTimestep(finalStep, sim.getGrid());
+        }
+
+        if (!db.endRun()) return 1;
         exportToJSON("latest_heatmap.json", finalStep, ROWS, COLS, sim.getGrid());
     }
 
