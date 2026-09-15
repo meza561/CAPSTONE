@@ -1,41 +1,38 @@
-# Heat Spread Simulation
+# Heat Simulation Web App
 
-C++ simulation of 2D heat dispersion on a flat plate using the Finite Difference Method (FDM).
+A self-sufficient web application for simulating the 2D Heat Equation using the Finite Difference Method (FDM).
 
-## Requirements
-- C++17 compiler (g++)
-- SQLite3 library (`libsqlite3-dev` on Ubuntu, `sqlite` via Homebrew on macOS)
+## Architecture
+- **Backend**: C++ simulation engine for high-performance computation, wrapped in a Python Flask API.
+- **Frontend**: Dynamic HTML5/JS visualization with a heatmap renderer and simulation history.
+- **Data**: JSON exchange between API and Frontend; LocalStorage for history.
 
-## Build Instructions
-Instead of CMake, build directly using `g++`:
+## Getting Started
 
+### Prerequisites
+- CMake
+- GCC/Clang (C++17)
+- Python 3.x
+- SQLite3
+
+### Quick Start
+Run the provided startup script:
 ```bash
-g++ -std=c++17 main.cpp database.cpp -lsqlite3 -o heat_sim
+./start.sh
 ```
+This script will:
+1. Compile the C++ simulation binary.
+2. Start the Flask web server.
+3. Open your browser to the application.
 
-## Running the Simulation
-You can run the simulation with optional boundary temperature parameters:
-```bash
-./heat_sim <rows> <cols> <top_temp> <bottom_temp> <left_temp> <right_temp>
-```
-Example:
-```bash
-./heat_sim 20 20 100 0 0 0
-```
-If no arguments are provided, it defaults to a 20x20 grid with a hot top edge (100°C) and cold others.
+## API Endpoints
+- `GET /`: Serves the frontend.
+- `POST /run`: Executes a simulation.
+  - **Payload**: `{ "rows": 20, "cols": 20, "top": 100, "bottom": 0, "left": 0, "right": 0 }`
+  - **Response**: JSON containing simulation status and the final grid data.
 
-## Web Frontend
-A web-based visualizer is located in the `/web` folder. 
-To run it:
-1. Run the simulation to generate `latest_heatmap.json`.
-2. Start a local server in the `/web` directory:
-   ```bash
-   cd web
-   python3 -m http.server 8000
-   ```
-3. Open `http://localhost:8000` in your browser.
-
-## Implementation Details
-- **Method**: Explicit Forward-Time Central-Space (FTCS) scheme.
-- **Stability**: The simulation assumes $\alpha \Delta t / \Delta x^2 \le 0.25$ for stability.
-- **Output**: The final state is exported to `latest_heatmap.json` for the web frontend.
+## Project Structure
+- `main.cpp`: C++ Simulation logic.
+- `server.py`: Flask API server.
+- `web/`: Frontend assets (HTML, CSS, JS).
+- `start.sh`: Unified launch script.

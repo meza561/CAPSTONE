@@ -21,10 +21,36 @@ header h1 {
     color: #2c3e50;
 }
 
+.tabs {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.tab-btn {
+    padding: 10px 20px;
+    background: #ddd;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s;
+}
+
+.tab-btn.active {
+    background: #3498db;
+    color: white;
+}
+
 .main-layout {
     display: grid;
     grid-template-columns: 350px 1fr;
     gap: 30px;
+}
+
+.hidden {
+    display: none !important;
 }
 
 .controls {
@@ -103,6 +129,20 @@ button:hover {
     background-color: #2980b9;
 }
 
+button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+.secondary-btn {
+    background-color: #e74c3c;
+    margin-top: 20px;
+}
+
+.secondary-btn:hover {
+    background-color: #c0392b;
+}
+
 .status {
     margin-top: 15px;
     font-size: 0.85rem;
@@ -147,4 +187,35 @@ canvas {
     background: linear-gradient(to right, blue, cyan, green, yellow, red);
     border-radius: 8px;
     border: 1px solid #ddd;
+}
+
+.history-container {
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    width: 100%;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    text-align: left;
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+}
+
+th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.view-btn {
+    width: auto;
+    padding: 6px 12px;
+    font-size: 0.8rem;
 }

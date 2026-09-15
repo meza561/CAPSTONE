@@ -13,7 +13,12 @@
             <p>Configure boundary temperatures and visualize the heat spread.</p>
         </header>
 
-        <div class="main-layout">
+        <nav class="tabs">
+            <button class="tab-btn active" data-tab="sim-tab">Simulation</button>
+            <button class="tab-btn" data-tab="history-tab">History</button>
+        </nav>
+
+        <div class="main-layout" id="sim-tab">
             <section class="controls">
                 <h2>Simulation Parameters</h2>
                 <div class="input-group">
@@ -60,6 +65,25 @@
                     <span>0°C</span>
                     <span>100°C</span>
                 </div>
+            </section>
+        </div>
+
+        <div class="main-layout hidden" id="history-tab">
+            <section class="history-container">
+                <h2>Simulation History</h2>
+                <table id="historyTable">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Size</th>
+                            <th>Boundaries (T/B/L/R)</th>
+                            <th>Steps</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <button id="clearHistoryBtn" class="secondary-btn">Clear History</button>
             </section>
         </div>
     </div>

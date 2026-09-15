@@ -3,6 +3,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const ctx = canvas.getContext('2d');
     const runBtn = document.getElementById('runBtn');
     const statusText = document.getElementById('status');
+    
+    // Tabs
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabs = {
+        'sim-tab': document.getElementById('sim-tab'),
+        'history-tab': document.getElementById('history-tab')
+    };
 
     const inputs = {
         rows: document.getElementById('rows'),
@@ -13,93 +20,141 @@ document.addEventListener('DOMContentLoaded', () => {
         right: document.getElementById('right'),
     };
 
-    async function fetchHeatmap() {
-        try {
-            // Since the C++ binary runs on the host and saves to a file,
-            // the JS frontend reads the resulting JSON file served by the local server.
-            const response = await fetch('../latest_heatmap.json');
-            if (!response.ok) throw new Error('Data file not found. Run the simulation first.');
-            return await response.json();
-        } catch (e) {
-            throw e;
-        }
-    }
+    // Tab Switching Logic
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            tabBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            Object.keys(tabs).forEach(id => {
+                tabs[id].classList.toggle('hidden', id !== btn.dataset.tab);
+            });
 
-    function getColorForTemp(temp) {
-        // Normalize temp between 0 and 100
-        const t = Math.max(0, Math.min(1, temp / 100));
-        
-        // Simple HSL mapping: 240 (blue) to 0 (red)
-        const hue = (1 - t) * 240;
-        return `hsl(${hue}, 100%, 50%)`;
-    }
+            if (btn.dataset.tab === 'history-tab') {
+                renderHistory();
+            }
+        });
+    });
 
     function drawHeatmap(data) {
         const { rows, cols, data: grid } = data;
-        
-        // Set canvas resolution to match grid
         canvas.width = cols;
         canvas.height = rows;
-
         const imageData = ctx.createImageData(cols, rows);
 
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
                 const temp = grid[i][j];
-                
-                // Use a custom color mapping for imageData (RGBA)
-                // For simplicity, we'll use a basic blue -> red gradient
                 const t = Math.max(0, Math.min(1, temp / 100));
                 const r = Math.floor(t * 255);
                 const b = Math.floor((1 - t) * 255);
                 const g = Math.floor((1 - Math.abs(t - 0.5) * 2) * 100);
 
                 const index = (i * cols + j) * 4;
-                imageData.data[index] = r;     // R
-                imageData.data[index + 1] = g; // G
-                imageData.data[index + 2] = b; // B
-                imageData.data[index + 3] = 255; // A
+                imageData.data[index] = r;
+                imageData.data[index + 1] = g;
+                imageData.data[index + 2] = b;
+                imageData.data[index + 3] = 255;
             }
         }
         ctx.putImageData(imageData, 0, 0);
-
-        // Upscale the canvas for visibility
         canvas.style.width = `${cols * 20}px`;
         canvas.style.height = `${rows * 20}px`;
     }
 
-    async function updateView() {
-        statusText.textContent = 'Fetching data...';
+    async function runSimulation() {
+        const params = {
+            rows: parseInt(inputs.rows.value),
+            cols: parseInt(inputs.cols.value),
+            top: parseFloat(inputs.top.value),
+            bottom: parseFloat(inputs.bottom.value),
+            left: parseFloat(inputs.left.value),
+            right: parseFloat(inputs.right.value),
+        };
+
+        statusText.textContent = 'Running simulation on server...';
+        runBtn.disabled = true;
+
         try {
-            const data = await fetchHeatmap();
-            drawHeatmap(data);
-            statusText.textContent = `Loaded step ${data.step} (${data.rows}x${data.cols})`;
+            const response = await fetch('/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(params)
+            });
+
+            if (!response.ok) throw new Error('Server error during simulation');
+            
+            const result = await response.json();
+            const heatmapData = result.data;
+
+            drawHeatmap(heatmapData);
+            statusText.textContent = `Complete! Step ${heatmapData.step} (${heatmapData.rows}x${heatmapData.cols})`;
+
+            // Save to history
+            saveToHistory({
+                date: new Date().toLocaleString(),
+                params: params,
+                steps: heatmapData.step,
+                data: heatmapData
+            });
+
         } catch (e) {
             statusText.textContent = `Error: ${e.message}`;
+        } finally {
+            runBtn.disabled = false;
         }
     }
 
-    runBtn.addEventListener('click', async () => {
-        statusText.textContent = 'Triggering simulation...';
-        
-        /**
-         * INTEGRATION NOTE:
-         * In a production environment, this button would call a backend API (Node/Python) 
-         * that executes the C++ binary with the provided parameters.
-         * Since this is a local academic tool, the user is expected to run the binary via CLI
-         * or the project owner can add a small Python wrapper.
-         * 
-         * For this version, we simulate the trigger and tell the user to run the binary.
-         */
-        
-        const cmd = `./heat_sim ${inputs.rows.value} ${inputs.cols.value} ${inputs.top.value} ${inputs.bottom.value} ${inputs.left.value} ${inputs.right.value}`;
-        
-        alert(`To run this simulation, please execute the following in your terminal:\n\n${cmd}`);
-        
-        // Attempt to load the updated file after a short delay
-        setTimeout(updateView, 1000);
+    function saveToHistory(entry) {
+        const history = JSON.parse(localStorage.getItem('heat_sim_history') || '[]');
+        history.unshift(entry);
+        localStorage.setItem('heat_sim_history', JSON.stringify(history.slice(0, 50))); // Keep last 50
+    }
+
+    function renderHistory() {
+        const history = JSON.parse(localStorage.getItem('heat_sim_history') || '[]');
+        const tbody = document.querySelector('#historyTable tbody');
+        tbody.innerHTML = '';
+
+        history.forEach((item, index) => {
+            const row = document.createElement('tr');
+            const p = item.params;
+            row.innerHTML = `
+                <td>${item.date}</td>
+                <td>${p.rows}x${p.cols}</td>
+                <td>${p.top},${p.bottom},${p.left},${p.right}</td>
+                <td>${item.steps}</td>
+                <td><button class="view-btn" data-index="${index}">View</button></td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = e.target.dataset.index;
+                const item = history[index];
+                
+                // Restore inputs
+                inputs.rows.value = item.params.rows;
+                inputs.cols.value = item.params.cols;
+                inputs.top.value = item.params.top;
+                inputs.bottom.value = item.params.bottom;
+                inputs.left.value = item.params.left;
+                inputs.right.value = item.params.right;
+
+                drawHeatmap(item.data);
+                
+                // Switch to sim tab
+                document.querySelector('[data-tab="sim-tab"]').click();
+                statusText.textContent = `Restored from history: Step ${item.steps}`;
+            });
+        });
+    }
+
+    document.getElementById('clearHistoryBtn').addEventListener('click', () => {
+        localStorage.removeItem('heat_sim_history');
+        renderHistory();
     });
 
-    // Initial load
-    updateView();
+    runBtn.addEventListener('click', runSimulation);
 });
