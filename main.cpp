@@ -3,6 +3,7 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <string>
 #include "database.hpp"
 
 /**
@@ -19,12 +20,16 @@ public:
     }
 
     void setBoundary(int r, int c, double temp) {
-        grid[r][c] = temp;
-        nextGrid[r][c] = temp;
+        if (r >= 0 && r < rows && c >= 0 && c < cols) {
+            grid[r][c] = temp;
+            nextGrid[r][c] = temp;
+        }
     }
 
     void setInitialTemp(int r, int c, double temp) {
-        grid[r][c] = temp;
+        if (r >= 0 && r < rows && c >= 0 && c < cols) {
+            grid[r][c] = temp;
+        }
     }
 
     double step() {
@@ -45,6 +50,8 @@ public:
     }
 
     const std::vector<std::vector<double>>& getGrid() const { return grid; }
+    int getRows() const { return rows; }
+    int getCols() const { return cols; }
 
 private:
     int rows, cols;
@@ -53,57 +60,78 @@ private:
     std::vector<std::vector<double>> nextGrid;
 };
 
-void exportToCSV(int step, const std::vector<std::vector<double>>& grid) {
-    std::ofstream file("heatmap_step_" + std::to_string(step) + ".csv");
-    for (const auto& row : grid) {
-        for (size_t i = 0; i < row.size(); ++i) {
-            file << std::fixed << std::setprecision(4) << row[i] << (i == row.size() - 1 ? "" : ",");
+void exportToJSON(const std::string& filename, int step, int rows, int cols, const std::vector<std::vector<double>>& grid) {
+    std::ofstream file(filename);
+    file << "{\n";
+    file << "  \"step\": " << step << ",\n";
+    file << "  \"rows\": " << rows << ",\n";
+    file << "  \"cols\": " << cols << ",\n";
+    file << "  \"data\": [\n";
+    for (int i = 0; i < rows; ++i) {
+        file << "    [";
+        for (int j = 0; j < cols; ++j) {
+            file << std::fixed << std::setprecision(4) << grid[i][j] << (j == cols - 1 ? "" : ",");
         }
-        file << "\n";
+        file << "]" << (i == rows - 1 ? "" : ",\n");
     }
+    file << "\n  ]\n}";
 }
 
-int main() {
-    const int ROWS = 20;
-    const int COLS = 20;
-    const double ALPHA = 0.01; // Thermal diffusivity
-    const double DX = 1.0;     // Space step
-    const double DT = 0.1;     // Time step
-    const int MAX_STEPS = 1000;
-    const double CONVERGENCE_THRESHOLD = 1e-4;
+int main(int argc, char* argv[]) {
+    // Default Parameters
+    int ROWS = 20;
+    int COLS = 20;
+    double ALPHA = 0.01;
+    double DX = 1.0;
+    double DT = 0.1;
+    int MAX_STEPS = 1000;
+    double CONVERGENCE_THRESHOLD = 1e-4;
+    double topTemp = 100.0;
+    double bottomTemp = 0.0;
+    double leftTemp = 0.0;
+    double rightTemp = 0.0;
+
+    // Simple CLI argument parsing for basic parameters
+    if (argc >= 6) {
+        ROWS = std::stoi(argv[1]);
+        COLS = std::stoi(argv[2]);
+        topTemp = std::stod(argv[3]);
+        bottomTemp = std::stod(argv[4]);
+        leftTemp = std::stod(argv[5]);
+        if (argc >= 7) rightTemp = std::stod(argv[6]);
+    }
 
     HeatSimulation sim(ROWS, COLS, ALPHA, DX, DT);
     HeatDatabase db("heat_sim.db");
 
     if (!db.init()) return 1;
 
-    // Boundary Conditions: Top edge hot, others cold
-    for (int j = 0; j < COLS; ++j) sim.setBoundary(0, j, 100.0);
-    for (int i = 1; i < ROWS; ++i) {
-        sim.setBoundary(i, 0, 0.0);
-        sim.setBoundary(i, COLS - 1, 0.0);
-    }
-    for (int j = 0; j < COLS; ++j) sim.setBoundary(ROWS - 1, j, 0.0);
+    // Boundary Conditions
+    for (int j = 0; j < COLS; ++j) sim.setBoundary(0, j, topTemp);
+    for (int j = 0; j < COLS; ++j) sim.setBoundary(ROWS - 1, j, bottomTemp);
+    for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, 0, leftTemp);
+    for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, COLS - 1, rightTemp);
 
-    std::cout << "Starting Simulation...\n";
-    std::cout << "Step\tMax Delta T\n";
-
+    std::cout << "Starting Simulation (" << ROWS << "x" << COLS << ")...\n";
+    
+    int finalStep = 0;
     for (int s = 0; s < MAX_STEPS; ++s) {
         double delta = sim.step();
         db.saveTimestep(s, sim.getGrid());
+        finalStep = s;
 
         if (s % 100 == 0) {
-            std::cout << s << "\t" << delta << "\n";
+            std::cout << "Step " << s << " | Max Delta T: " << delta << "\n";
         }
 
         if (delta < CONVERGENCE_THRESHOLD) {
-            std::cout << "Converged at step " << s << " (Delta T: " << delta << ")\n";
+            std::cout << "Converged at step " << s << "\n";
             break;
         }
     }
 
-    exportToCSV(MAX_STEPS, sim.getGrid());
-    std::cout << "Simulation complete. Data stored in heat_sim.db and final CSV generated.\n";
+    exportToJSON("latest_heatmap.json", finalStep, ROWS, COLS, sim.getGrid());
+    std::cout << "Simulation complete. Output written to latest_heatmap.json\n";
 
     return 0;
 }

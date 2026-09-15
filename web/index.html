@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heat Simulation Visualizer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Heat Simulation Visualizer</h1>
+            <p>Configure boundary temperatures and visualize the heat spread.</p>
+        </header>
+
+        <div class="main-layout">
+            <section class="controls">
+                <h2>Simulation Parameters</h2>
+                <div class="input-group">
+                    <label>Grid Size (Rows x Cols)</label>
+                    <div class="row">
+                        <input type="number" id="rows" value="20">
+                        <span>x</span>
+                        <input type="number" id="cols" value="20">
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Boundary Temperatures (°C)</label>
+                    <div class="temp-grid">
+                        <div class="temp-input">
+                            <label>Top</label>
+                            <input type="number" id="top" value="100">
+                        </div>
+                        <div class="temp-input">
+                            <label>Bottom</label>
+                            <input type="number" id="bottom" value="0">
+                        </div>
+                        <div class="temp-input">
+                            <label>Left</label>
+                            <input type="number" id="left" value="0">
+                        </div>
+                        <div class="temp-input">
+                            <label>Right</label>
+                            <input type="number" id="right" value="0">
+                        </div>
+                    </div>
+                </div>
+
+                <button id="runBtn">Run Simulation</button>
+                <p id="status" class="status"></p>
+            </section>
+
+            <section class="visualization">
+                <div class="canvas-container">
+                    <canvas id="heatCanvas"></canvas>
+                </div>
+                <div class="legend">
+                    <div class="gradient-bar"></div>
+                    <span>0°C</span>
+                    <span>100°C</span>
+                </div>
+            </section>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
