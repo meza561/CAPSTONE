@@ -7,85 +7,103 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
+    <div class="app-wrapper">
+        <header class="main-header">
             <h1>Heat Simulation Visualizer</h1>
-            <p>Configure boundary temperatures and visualize the heat spread.</p>
+            <p>Configure boundary temperatures and visualize the heat spread in real-time.</p>
         </header>
 
-        <nav class="tabs">
+        <nav class="nav-tabs">
             <button class="tab-btn active" data-tab="sim-tab">Simulation</button>
             <button class="tab-btn" data-tab="history-tab">History</button>
         </nav>
 
-        <div class="main-layout" id="sim-tab">
-            <section class="controls">
-                <h2>Simulation Parameters</h2>
-                <div class="input-group">
-                    <label>Grid Size (Rows x Cols)</label>
-                    <div class="row">
-                        <input type="number" id="rows" value="20">
-                        <span>x</span>
-                        <input type="number" id="cols" value="20">
+        <main class="dashboard-container">
+            <div class="main-layout" id="sim-tab">
+                <section class="panel controls-panel">
+                    <h2 class="panel-title">Simulation Parameters</h2>
+                    
+                    <div class="input-group">
+                        <label for="simMode">Simulation Mode</label>
+                        <select id="simMode" class="mode-select">
+                            <option value="fdm">Initial Conditions (FDM)</option>
+                            <option value="pde">PDE-driven (Analytical)</option>
+                        </select>
                     </div>
-                </div>
 
-                <div class="input-group">
-                    <label>Boundary Temperatures (°C)</label>
-                    <div class="temp-grid">
-                        <div class="temp-input">
-                            <label>Top</label>
-                            <input type="number" id="top" value="100">
-                        </div>
-                        <div class="temp-input">
-                            <label>Bottom</label>
-                            <input type="number" id="bottom" value="0">
-                        </div>
-                        <div class="temp-input">
-                            <label>Left</label>
-                            <input type="number" id="left" value="0">
-                        </div>
-                        <div class="temp-input">
-                            <label>Right</label>
-                            <input type="number" id="right" value="0">
+                    <div class="input-group">
+                        <label for="rows">Grid Resolution</label>
+                        <div class="row-input">
+                            <input type="number" id="rows" value="20" placeholder="Rows">
+                            <span class="separator">×</span>
+                            <input type="number" id="cols" value="20" placeholder="Cols">
                         </div>
                     </div>
-                </div>
 
-                <button id="runBtn">Run Simulation</button>
-                <p id="status" class="status"></p>
-            </section>
+                    <div id="pde-params" class="input-group hidden">
+                        <label for="alpha">Thermal Diffusivity (α)</label>
+                        <input type="number" id="alpha" value="0.01" step="0.001">
+                    </div>
 
-            <section class="visualization">
-                <div class="canvas-container">
-                    <canvas id="heatCanvas"></canvas>
-                </div>
-                <div class="legend">
-                    <div class="gradient-bar"></div>
-                    <span>0°C</span>
-                    <span>100°C</span>
-                </div>
-            </section>
-        </div>
+                    <div class="input-group">
+                        <label>Boundary Temperatures (°C)</label>
+                        <div class="temp-grid">
+                            <div class="temp-field">
+                                <label for="top">Top</label>
+                                <input type="number" id="top" value="100">
+                            </div>
+                            <div class="temp-field">
+                                <label for="bottom">Bottom</label>
+                                <input type="number" id="bottom" value="0">
+                            </div>
+                            <div class="temp-field">
+                                <label for="left">Left</label>
+                                <input type="number" id="left" value="0">
+                            </div>
+                            <div class="temp-field">
+                                <label for="right">Right</label>
+                                <input type="number" id="right" value="0">
+                            </div>
+                        </div>
+                    </div>
 
-        <div class="main-layout hidden" id="history-tab">
-            <section class="history-container">
-                <h2>Simulation History</h2>
-                <table id="historyTable">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Size</th>
-                            <th>Boundaries (T/B/L/R)</th>
-                            <th>Steps</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-                <button id="clearHistoryBtn" class="secondary-btn">Clear History</button>
-            </section>
-        </div>
+                    <button id="runBtn" class="primary-btn">Run Simulation</button>
+                    <div id="status" class="status-display">Ready to simulate</div>
+                </section>
+
+                <section class="panel visualization-panel">
+                    <div class="canvas-stage">
+                        <canvas id="heatCanvas"></canvas>
+                    </div>
+                    <div class="legend-container">
+                        <div class="legend-label">0°C</div>
+                        <div class="gradient-bar"></div>
+                        <div class="legend-label">100°C</div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="main-layout hidden" id="history-tab">
+                <section class="panel history-panel">
+                    <h2 class="panel-title">Simulation History</h2>
+                    <div class="table-responsive">
+                        <table id="historyTable">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Resolution</th>
+                                    <th>Boundaries (T/B/L/R)</th>
+                                    <th>Steps</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <button id="clearHistoryBtn" class="secondary-btn">Clear History</button>
+                </section>
+            </div>
+        </main>
     </div>
     <script src="script.js"></script>
 </body>

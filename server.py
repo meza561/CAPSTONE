@@ -29,9 +29,11 @@ def run_simulation():
         bottom = str(data.get('bottom', 0))
         left = str(data.get('left', 0))
         right = str(data.get('right', 0))
+        mode = str(data.get('mode', 'fdm'))
+        alpha = str(data.get('alpha', 0.01))
 
         # Execute the C++ binary
-        cmd = [SIM_BINARY, rows, cols, top, bottom, left, right]
+        cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         # The binary writes to latest_heatmap.json
@@ -47,7 +49,6 @@ def run_simulation():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
-    # Ensure the binary exists
     if not os.path.exists(SIM_BINARY):
         print(f"Error: {SIM_BINARY} not found. Please build the project first.")
         exit(1)

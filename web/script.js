@@ -4,7 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const runBtn = document.getElementById('runBtn');
     const statusText = document.getElementById('status');
     
-    // Tabs
     const tabBtns = document.querySelectorAll('.tab-btn');
     const tabs = {
         'sim-tab': document.getElementById('sim-tab'),
@@ -12,6 +11,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const inputs = {
+        mode: document.getElementById('simMode'),
+        alpha: document.getElementById('alpha'),
         rows: document.getElementById('rows'),
         cols: document.getElementById('cols'),
         top: document.getElementById('top'),
@@ -20,7 +21,12 @@ document.addEventListener('DOMContentLoaded', () => {
         right: document.getElementById('right'),
     };
 
-    // Tab Switching Logic
+    const pdeParamsDiv = document.getElementById('pde-params');
+
+    inputs.mode.addEventListener('change', () => {
+        pdeParamsDiv.classList.toggle('hidden', inputs.mode.value !== 'pde');
+    });
+
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             tabBtns.forEach(b => b.classList.remove('active'));
@@ -46,10 +52,9 @@ document.addEventListener('DOMContentLoaded', () => {
             for (let j = 0; j < cols; j++) {
                 const temp = grid[i][j];
                 const t = Math.max(0, Math.min(1, temp / 100));
-                const r = Math.floor(t * 255);
-                const b = Math.floor((1 - t) * 255);
-                const g = Math.floor((1 - Math.abs(t - 0.5) * 2) * 100);
-
+                const r = Math.floor(t > 0.5 ? (t - 0.5) * 2 * 255 : 0);
+                const b = Math.floor(t < 0.5 ? (0.5 - t) * 2 * 255 : 0);
+                const g = Math.floor((1 - Math.abs(t - 0.5) * 2) * 255);
                 const index = (i * cols + j) * 4;
                 imageData.data[index] = r;
                 imageData.data[index + 1] = g;
@@ -58,12 +63,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         ctx.putImageData(imageData, 0, 0);
-        canvas.style.width = `${cols * 20}px`;
-        canvas.style.height = `${rows * 20}px`;
     }
 
     async function runSimulation() {
         const params = {
+            mode: inputs.mode.value,
+            alpha: parseFloat(inputs.alpha.value),
             rows: parseInt(inputs.rows.value),
             cols: parseInt(inputs.cols.value),
             top: parseFloat(inputs.top.value),
@@ -90,7 +95,6 @@ document.addEventListener('DOMContentLoaded', () => {
             drawHeatmap(heatmapData);
             statusText.textContent = `Complete! Step ${heatmapData.step} (${heatmapData.rows}x${heatmapData.cols})`;
 
-            // Save to history
             saveToHistory({
                 date: new Date().toLocaleString(),
                 params: params,
@@ -108,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function saveToHistory(entry) {
         const history = JSON.parse(localStorage.getItem('heat_sim_history') || '[]');
         history.unshift(entry);
-        localStorage.setItem('heat_sim_history', JSON.stringify(history.slice(0, 50))); // Keep last 50
+        localStorage.setItem('heat_sim_history', JSON.stringify(history.slice(0, 50)));
     }
 
     function renderHistory() {
@@ -134,7 +138,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const index = e.target.dataset.index;
                 const item = history[index];
                 
-                // Restore inputs
+                inputs.mode.value = item.params.mode;
+                inputs.alpha.value = item.params.alpha;
                 inputs.rows.value = item.params.rows;
                 inputs.cols.value = item.params.cols;
                 inputs.top.value = item.params.top;
@@ -142,9 +147,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 inputs.left.value = item.params.left;
                 inputs.right.value = item.params.right;
 
+                pdeParamsDiv.classList.toggle('hidden', item.params.mode !== 'pde');
+
                 drawHeatmap(item.data);
-                
-                // Switch to sim tab
                 document.querySelector('[data-tab="sim-tab"]').click();
                 statusText.textContent = `Restored from history: Step ${item.steps}`;
             });
