@@ -50,7 +50,9 @@ def caption(fig, text):
 
 
 def style(ax, title, xlabel, ylabel):
-    ax.set_title(title, color=INK, fontsize=12, fontweight="600", pad=12, loc="left")
+    # "600" is not a weight DejaVu Sans provides; asking for it makes
+    # matplotlib emit a findfont warning on every figure.
+    ax.set_title(title, color=INK, fontsize=12, fontweight="bold", pad=12, loc="left")
     ax.set_xlabel(xlabel, color=INK_2)
     ax.set_ylabel(ylabel, color=INK_2)
     ax.grid(True, which="both", color=GRID, linewidth=0.8, zorder=0)
@@ -226,6 +228,50 @@ def fig_stability(d):
     save(fig, "stability")
 
 
+def fig_scaling(d):
+    """Speedup vs threads. Only meaningful with OpenMP actually enabled."""
+    sc = d.get("scaling")
+    if not sc or not sc.get("openmp") or sc.get("max_threads", 1) < 2:
+        print("  skipped scaling figure (built without OpenMP, or single core)")
+        return
+
+    runs = sc["runs"]
+    grids = sorted({r["N"] for r in runs})
+    fig, axes = plt.subplots(1, len(grids), figsize=(4.2 * len(grids), 4.4), squeeze=False)
+
+    for ax, N in zip(axes[0], grids):
+        threads = sorted({r["threads"] for r in runs if r["N"] == N})
+        ideal = [t for t in threads]
+        ax.plot(threads, ideal, linestyle="--", linewidth=1.5, color=MUTED, zorder=1)
+        ax.annotate("ideal", xy=(threads[-1], ideal[-1]), xytext=(-2, -14),
+                    textcoords="offset points", color=MUTED, fontsize=9, ha="right")
+
+        for key, color, nice in (("explicit", SERIES_1, "Explicit"),
+                                 ("crank_nicolson", SERIES_3, "Crank\u2013Nicolson")):
+            pts = sorted([r for r in runs if r["N"] == N and r["scheme"] == key],
+                         key=lambda r: r["threads"])
+            if not pts:
+                continue
+            ax.plot([p["threads"] for p in pts], [p["speedup"] for p in pts],
+                    marker="o", markersize=7, linewidth=2, color=color, zorder=3,
+                    markeredgecolor=SURFACE, markeredgewidth=1.5, label=nice)
+
+        ax.set_xscale("log", base=2); ax.set_yscale("log", base=2)
+        ax.set_xticks(threads); ax.set_xticklabels([str(t) for t in threads])
+        ax.set_yticks(threads); ax.set_yticklabels([str(t) for t in threads])
+        style(ax, f"{N}\u00d7{N} grid", "threads", "speedup" if N == grids[0] else "")
+        leg = ax.legend(frameon=False, loc="upper left")
+        for t in leg.get_texts():
+            t.set_color(INK_2)
+
+    caption(fig,
+            f"Strong scaling on {sc['max_threads']} hardware threads. Rows of the explicit update and "
+            f"each ADI grid line are\nindependent, so neither needs synchronisation; serial and parallel "
+            f"output is bit-identical. A stencil this\ncheap is memory-bandwidth bound, so efficiency "
+            f"falls off as threads are added.")
+    save(fig, "scaling")
+
+
 def main():
     if not os.path.exists("study_results.json"):
         sys.exit("study_results.json not found - run ./heat_study first")
@@ -236,6 +282,7 @@ def main():
     fig_temporal(d)
     fig_cost(d)
     fig_stability(d)
+    fig_scaling(d)
 
     s = d["spatial"]["cases"]
     print("\nSummary")

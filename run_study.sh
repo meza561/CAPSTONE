@@ -37,7 +37,6 @@ echo
 if [ -d ".venv" ]; then VENV=".venv"; elif [ -d "venv" ]; then VENV="venv"; else VENV=""; fi
 if [ -n "$VENV" ] && "$VENV/bin/python" -c "import matplotlib" 2>/dev/null; then
     echo
-    echo "Rendering figures..."
     "$VENV/bin/python" make_figures.py
 else
     echo

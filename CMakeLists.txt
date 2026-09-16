@@ -14,10 +14,36 @@ find_package(SQLite3 REQUIRED)
 # without it - the pragmas are simply ignored and everything runs serially.
 # On macOS: brew install libomp
 find_package(OpenMP)
+
+# Apple's clang ships without OpenMP, and even with Homebrew's libomp
+# installed CMake will not find it: the compiler needs -Xpreprocessor and the
+# headers/libs are under the brew prefix, not a default search path. Point
+# CMake at them explicitly before giving up.
+if(APPLE AND NOT OpenMP_CXX_FOUND)
+    execute_process(COMMAND brew --prefix libomp
+                    OUTPUT_VARIABLE LIBOMP_PREFIX
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET)
+    if(LIBOMP_PREFIX AND EXISTS "${LIBOMP_PREFIX}/include/omp.h")
+        message(STATUS "Using Homebrew libomp at ${LIBOMP_PREFIX}")
+        set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp -I${LIBOMP_PREFIX}/include")
+        set(OpenMP_CXX_LIB_NAMES "omp")
+        if(EXISTS "${LIBOMP_PREFIX}/lib/libomp.dylib")
+            set(OpenMP_omp_LIBRARY "${LIBOMP_PREFIX}/lib/libomp.dylib")
+        else()
+            set(OpenMP_omp_LIBRARY "${LIBOMP_PREFIX}/lib/libomp.a")
+        endif()
+        find_package(OpenMP)
+    endif()
+endif()
+
 if(OpenMP_CXX_FOUND)
     message(STATUS "OpenMP found - parallel step loops enabled")
 else()
     message(STATUS "OpenMP not found - building serial (this is fine)")
+    if(APPLE)
+        message(STATUS "  To enable it:  brew install libomp   then re-run cmake")
+    endif()
 endif()
 
 function(link_openmp target)

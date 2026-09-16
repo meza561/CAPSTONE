@@ -556,7 +556,11 @@ int main() {
     std::cout << "Built without OpenMP - serial timings only.\n"
                  "  (macOS: brew install libomp, then re-run cmake)\n\n";
 #endif
-    std::cout << "   grid    scheme            threads     seconds    speedup   efficiency\n";
+    if (maxThreads > 1) {
+        std::cout << "   grid    scheme            threads     seconds    speedup   efficiency\n";
+    } else {
+        std::cout << "   grid    scheme                        seconds\n";
+    }
 
     std::ofstream csvP("study_scaling.csv");
     csvP << "N,scheme,threads,seconds,speedup\n";
@@ -599,10 +603,15 @@ int main() {
             const double sp = (secs > 0.0) ? serialTime / secs : 0.0;
 
             std::cout << std::setw(7) << S.N << "    " << std::left << std::setw(18)
-                      << S.label << std::right << std::setw(7) << th
-                      << std::fixed << std::setprecision(4) << std::setw(12) << secs
-                      << std::setprecision(2) << std::setw(10) << sp << "x"
-                      << std::setw(11) << (100.0 * sp / th) << "%\n";
+                      << S.label << std::right;
+            if (maxThreads > 1) {
+                std::cout << std::setw(7) << th
+                          << std::fixed << std::setprecision(4) << std::setw(12) << secs
+                          << std::setprecision(2) << std::setw(10) << sp << "x"
+                          << std::setw(11) << (100.0 * sp / th) << "%\n";
+            } else {
+                std::cout << std::fixed << std::setprecision(4) << std::setw(19) << secs << "\n";
+            }
 
             csvP << S.N << "," << S.key << "," << th << "," << secs << "," << sp << "\n";
             json << (firstScale ? "      " : ",\n      ")
@@ -611,7 +620,7 @@ int main() {
                  << ", \"speedup\": " << num(sp) << "}";
             firstScale = false;
         }
-        std::cout << "\n";
+        if (maxThreads > 1) std::cout << "\n";
     }
 #ifdef _OPENMP
     omp_set_num_threads(maxThreads);
