@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <string>
 #include <utility>
+#include <algorithm>
 #include "database.hpp"
 
 /**
@@ -65,35 +66,64 @@ public:
         return maxDiff;
     }
 
-    // Analytical PDE Solution for steady-state heat on a rectangle
+    // Stable evaluation of sinh(k*a)/sinh(k*b). Computing the two sinh values
+    // separately overflows to inf/inf = NaN once k*b exceeds ~710, which caps
+    // how many series terms can be used.
+    static double sinhRatio(double k, double a, double b) {
+        if (b <= 0.0) return 0.0;
+        const double ka = k * a;
+        const double kb = k * b;
+        if (kb > 30.0) {
+            return std::exp(ka - kb) * (1.0 - std::exp(-2.0 * ka)) /
+                                       (1.0 - std::exp(-2.0 * kb));
+        }
+        return std::sinh(ka) / std::sinh(kb);
+    }
+
+    // Analytical steady-state (Laplace) solution on a rectangle.
+    //
+    // The solution for arbitrary Dirichlet data is the SUPERPOSITION of four
+    // single-edge problems, one per boundary. The previous implementation
+    // summed only the top-edge series and then blended it 70/30 with a flat
+    // average of all four edge temperatures. That blend does not satisfy
+    // Laplace's equation: it happened to land on the right answer for a single
+    // hot edge (where the series and the average coincide) and was wrong
+    // everywhere else - e.g. top=bottom=100 with cold sides gave 32.5 at the
+    // centre instead of the exact 50.
     void solveAnalytical(double topTemp, double bottomTemp, double leftTemp, double rightTemp) {
-        double L = cols - 1;
-        double W = rows - 1;
-        
+        const double L = cols - 1;
+        const double W = rows - 1;
+        const int N_TERMS = 199;   // odd harmonics only
+
         for (int i = 0; i < rows; ++i) {
             for (int j = 0; j < cols; ++j) {
-                double x = j;
-                double y = (rows - 1) - i; // flip y to be 0 at bottom
-                
-                double temp = 0;
-                
-                // Contribution of top boundary (y=W) using Fourier Series
-                for (int n = 1; n < 50; n += 2) {
-                    double term = (4.0 / (M_PI * n)) * topTemp * 
-                                  (std::sin(n * M_PI * x / L)) * 
-                                  (std::sinh(n * M_PI * y / L) / std::sinh(n * M_PI * W / L));
-                    temp += term;
+                const double x = j;
+                const double y = (rows - 1) - i;   // y = 0 at the bottom row
+
+                double temp = 0.0;
+                for (int n = 1; n <= N_TERMS; n += 2) {
+                    const double c = 4.0 / (M_PI * n);
+
+                    // Top and bottom edges: expand along x, decay along y.
+                    const double kx = n * M_PI / L;
+                    const double sx = std::sin(kx * x);
+                    temp += c * topTemp    * sx * sinhRatio(kx, y,     W);
+                    temp += c * bottomTemp * sx * sinhRatio(kx, W - y, W);
+
+                    // Left and right edges: expand along y, decay along x.
+                    const double ky = n * M_PI / W;
+                    const double sy = std::sin(ky * y);
+                    temp += c * rightTemp * sy * sinhRatio(ky, x,     L);
+                    temp += c * leftTemp  * sy * sinhRatio(ky, L - x, L);
                 }
-                
-                // Fallback linear blend to maintain reasonable results for arbitrary boundaries
-                double linear_avg = (topTemp + bottomTemp + leftTemp + rightTemp) / 4.0;
-                double weight = 0.7; 
-                grid[i][j] = (weight * temp) + ((1.0 - weight) * linear_avg);
-                
-                // Force boundaries
-                if (i == 0) grid[i][j] = topTemp;
+
+                grid[i][j] = temp;
+
+                // Pin the boundaries: a truncated series rings (Gibbs) exactly
+                // at the edges, and corners are genuinely discontinuous.
+                if (i == 0)        grid[i][j] = topTemp;
                 if (i == rows - 1) grid[i][j] = bottomTemp;
-                if (j == 0) grid[i][j] = leftTemp;
+                if (j == 0)        grid[i][j] = leftTemp;
                 if (j == cols - 1) grid[i][j] = rightTemp;
             }
         }
@@ -203,6 +233,17 @@ int main(int argc, char* argv[]) {
         SAVE_INTERVAL *= static_cast<int>(scale);
         std::cout << "Large grid (" << ROWS << "x" << COLS
                   << "): saving every " << SAVE_INTERVAL << " steps\n";
+    }
+
+    // Judge convergence relative to the problem's temperature scale. A fixed
+    // absolute threshold stopped the run ~9% short of equilibrium, and its
+    // meaning shifted once dt stopped being a constant.
+    {
+        double tempScale = std::max({std::fabs(topTemp), std::fabs(bottomTemp),
+                                     std::fabs(leftTemp), std::fabs(rightTemp),
+                                     hasPointSource ? std::fabs(psTemp) : 0.0,
+                                     1.0});
+        CONVERGENCE_THRESHOLD = 1e-7 * tempScale;
     }
 
     HeatSimulation sim(ROWS, COLS, ALPHA, DX, DT);

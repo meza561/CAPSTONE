@@ -27,9 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Element handles. These were previously relied on as implicit globals,
     // which only works when an id is also a valid JS identifier - so the
-    // hyphenated ones (time-evolution-ctrl, pde-params) threw ReferenceError.
+    // hyphenated ones (time-evolution-ctrl, alpha-params) threw ReferenceError.
     const psParamsDiv  = document.getElementById('ps-params');
-    const pdeParamsDiv = document.getElementById('pde-params');
+    const alphaParamsDiv = document.getElementById('alpha-params');
     const timeCtrl     = document.getElementById('time-evolution-ctrl');
     const timeSlider   = document.getElementById('timeSlider');
     const timeVal      = document.getElementById('timeVal');
@@ -41,6 +41,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // backend rather than assumed here.
     let simDt = 0.1;
     let simSaveInterval = 1;
+    // Alpha drives the time-dependent FDM solve only; the analytical steady
+    // state is independent of diffusivity. Without this listener the control
+    // was never shown at all, so alpha could not be changed from the UI.
+    function syncModeUI() {
+        const isPde = inputs.mode.value === 'pde';
+        alphaParamsDiv.classList.toggle('hidden', isPde);
+        if (isPde) timeCtrl.classList.add('hidden');
+    }
+    inputs.mode.addEventListener('change', syncModeUI);
+    syncModeUI();
+
     inputs.hasPS.addEventListener('change', () => {
         psParamsDiv.classList.toggle('hidden', !inputs.hasPS.checked);
     });
@@ -250,7 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 inputs.psC.value = item.params.psC || 0;
                 inputs.psTemp.value = item.params.psTemp || 0;
 
-                pdeParamsDiv.classList.toggle('hidden', item.params.mode !== 'pde');
+                alphaParamsDiv.classList.toggle('hidden', item.params.mode === 'pde');
                 psParamsDiv.classList.toggle('hidden', !inputs.hasPS.checked);
 
                 drawHeatmap(item.data);

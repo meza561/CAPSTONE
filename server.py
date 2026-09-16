@@ -1,5 +1,6 @@
 import os
 import subprocess
+import threading
 import json
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -7,6 +8,10 @@ import sqlite3
 
 app = Flask(__name__)
 CORS(app)
+
+# The simulation writes to one fixed database and one fixed JSON file, so two
+# overlapping requests would interleave and corrupt each other's results.
+SIM_LOCK = threading.Lock()
 
 # Path to the compiled C++ binary
 SIM_BINARY = "./heat_sim"
@@ -18,6 +23,17 @@ def _clamp(value, lo, hi, default):
     try:
         v = int(value)
     except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, v))
+
+
+def _clamp_float(value, lo, hi, default):
+    """Coerce a client-supplied float into a sane range."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return default
+    if v != v:  # NaN
         return default
     return max(lo, min(hi, v))
 
@@ -87,20 +103,27 @@ def run_simulation():
     try:
         # Bound grid size: an unbounded grid is what let the database grow
         # to multiple gigabytes.
-        rows = str(_clamp(data.get('rows', 20), 2, 300, 20))
-        cols = str(_clamp(data.get('cols', 20), 2, 300, 20))
-        top = str(data.get('top', 100))
-        bottom = str(data.get('bottom', 0))
-        left = str(data.get('left', 0))
-        right = str(data.get('right', 0))
+        n_rows = _clamp(data.get('rows', 20), 2, 300, 20)
+        n_cols = _clamp(data.get('cols', 20), 2, 300, 20)
+        rows, cols = str(n_rows), str(n_cols)
+        top = str(_clamp_float(data.get('top', 100), -1e6, 1e6, 100.0))
+        bottom = str(_clamp_float(data.get('bottom', 0), -1e6, 1e6, 0.0))
+        left = str(_clamp_float(data.get('left', 0), -1e6, 1e6, 0.0))
+        right = str(_clamp_float(data.get('right', 0), -1e6, 1e6, 0.0))
         mode = str(data.get('mode', 'fdm'))
-        alpha = str(data.get('alpha', 0.01))
+        if mode not in ('fdm', 'pde'):
+            mode = 'fdm'
+        # alpha sets the timestep (dt = 0.2*dx^2/alpha), so a zero or negative
+        # value would be a division by zero in the solver.
+        alpha = str(_clamp_float(data.get('alpha', 0.01), 1e-4, 1e3, 0.01))
         
         # Point source parameters
-        has_ps = data.get('hasPointSource', False)
-        ps_r = str(data.get('psR', 0))
-        ps_c = str(data.get('psC', 0))
-        ps_temp = str(data.get('psTemp', 0))
+        # Keep the source inside the grid: the solver silently ignores an
+        # out-of-range coordinate, which looks like the feature doing nothing.
+        has_ps = bool(data.get('hasPointSource', False))
+        ps_r = str(_clamp(data.get('psR', 0), 0, n_rows - 1, 0))
+        ps_c = str(_clamp(data.get('psC', 0), 0, n_cols - 1, 0))
+        ps_temp = str(_clamp_float(data.get('psTemp', 0), -1e6, 1e6, 0.0))
 
         # Execute the C++ binary
         cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha]
@@ -108,7 +131,18 @@ def run_simulation():
             cmd.extend([ps_r, ps_c, ps_temp])
             
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            with SIM_LOCK:
+                result = subprocess.run(cmd, capture_output=True, text=True,
+                                        check=True, timeout=300)
+                # Read inside the lock: the binary rewrites this same file on
+                # every run, so releasing first would let a concurrent request
+                # swap it out between the run and the read.
+                with open('latest_heatmap.json', 'r') as f:
+                    heatmap_data = json.load(f)
+        except subprocess.TimeoutExpired:
+            msg = "Simulation timed out after 300s"
+            print("ERROR:", msg, flush=True)
+            return jsonify({"status": "error", "message": msg}), 500
         except FileNotFoundError:
             msg = (f"Simulation binary not found at {SIM_BINARY}. "
                    f"Build it first by running ./start.sh")
@@ -119,10 +153,6 @@ def run_simulation():
             msg = f"Simulation failed: {detail}"
             print("ERROR:", msg, flush=True)
             return jsonify({"status": "error", "message": msg}), 500
-
-        # Return the latest state by default
-        with open('latest_heatmap.json', 'r') as f:
-            heatmap_data = json.load(f)
 
         return jsonify({
             "status": "success",
