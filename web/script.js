@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // hyphenated ones (time-evolution-ctrl, alpha-params) threw ReferenceError.
     const psParamsDiv  = document.getElementById('ps-params');
     const psGroup      = document.getElementById('ps-group');
+    const boundaryGroup = document.getElementById('boundary-group');
     const alphaParamsDiv = document.getElementById('alpha-params');
     const timeCtrl     = document.getElementById('time-evolution-ctrl');
     const timeSlider   = document.getElementById('timeSlider');
@@ -187,17 +188,52 @@ document.addEventListener('DOMContentLoaded', () => {
     // was never shown at all, so alpha could not be changed from the UI.
     const fParams = document.getElementById('f-params');
     const fHint = document.getElementById('f-hint');
+    const rdParams = document.getElementById('rd-params');
+    const rdIntro = document.getElementById('rd-intro');
+    const gsFields = document.getElementById('gs-fields');
+    const fkFields = document.getElementById('fk-fields');
+    const gsPreset = document.getElementById('gsPreset');
+    const fkSpeed = document.getElementById('fk-speed');
+    const rd = {
+        steps: document.getElementById('rdSteps'),
+        feed: document.getElementById('gsFeed'), kill: document.getElementById('gsKill'),
+        Du: document.getElementById('gsDu'), Dv: document.getElementById('gsDv'),
+        D: document.getElementById('fkD'), r: document.getElementById('fkR')
+    };
+
+    // Presets fill in feed/kill; editing either one switches to Custom so the
+    // dropdown never claims a regime the numbers no longer match.
+    gsPreset.addEventListener('change', () => {
+        if (gsPreset.value === 'custom') return;
+        const [f, k] = gsPreset.value.split(',');
+        rd.feed.value = f;
+        rd.kill.value = k;
+    });
+    [rd.feed, rd.kill].forEach(el => el.addEventListener('input', () => {
+        const match = `${rd.feed.value},${rd.kill.value}`;
+        const found = Array.from(gsPreset.options).some(o => o.value === match);
+        gsPreset.value = found ? match : 'custom';
+    }));
+
+    function updateFisherSpeed() {
+        const D = parseFloat(rd.D.value), r = parseFloat(rd.r.value);
+        fkSpeed.textContent = (isFinite(D) && isFinite(r) && D > 0 && r > 0)
+            ? `Predicted front speed c* = 2\u221a(Dr) = ${(2 * Math.sqrt(D * r)).toFixed(4)}`
+            : '';
+    }
+    [rd.D, rd.r].forEach(el => el.addEventListener('input', updateFisherSpeed));
 
     function syncModeUI() {
         const mode = inputs.mode.value;
         const isPde = mode === 'pde';
         const isImplicit = (mode === 'be' || mode === 'cn');
+        const isRD = (mode === 'fisher' || mode === 'gray-scott');
 
-        alphaParamsDiv.classList.toggle('hidden', isPde);
-        // The analytical solver works from the four boundary temperatures
-        // only - it has no notion of a point source - so hide the control
-        // rather than let it sit there being silently ignored.
-        if (psGroup) psGroup.classList.toggle('hidden', isPde);
+        // Reaction-diffusion has no boundary temperatures (edges are zero-flux)
+        // and no heat sources; it seeds itself.
+        alphaParamsDiv.classList.toggle('hidden', isPde || isRD);
+        if (psGroup) psGroup.classList.toggle('hidden', isPde || isRD);
+        if (boundaryGroup) boundaryGroup.classList.toggle('hidden', isRD);
         if (isPde) timeCtrl.classList.add('hidden');
 
         // F is only a free parameter for the implicit schemes. The explicit
@@ -208,6 +244,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? 'Unconditionally stable \u2014 try 50 or 500. The explicit scheme '
                   + 'diverges above 0.25, which is why its step size is fixed.'
                 : '';
+        }
+
+        if (rdParams) rdParams.classList.toggle('hidden', !isRD);
+        gsFields.classList.toggle('hidden', mode !== 'gray-scott');
+        fkFields.classList.toggle('hidden', mode !== 'fisher');
+        if (isRD) {
+            rdIntro.innerHTML = (mode === 'gray-scott')
+                ? 'Two species with unequal diffusivities \u2014 the Turing mechanism. '
+                  + 'Edges are zero-flux and the field seeds itself; the display shows '
+                  + 'the activator <em>v</em>.'
+                : 'One species: diffusion plus logistic growth, which produces a '
+                  + 'travelling population front.';
+            updateFisherSpeed();
         }
     }
     inputs.mode.addEventListener('change', syncModeUI);
@@ -347,6 +396,10 @@ document.addEventListener('DOMContentLoaded', () => {
             hasPointSource: inputs.hasPS.checked,
             sources: validSources(),
             F: parseFloat(inputs.F.value),
+            rdSteps: parseInt(rd.steps.value),
+            Du: parseFloat(rd.Du.value), Dv: parseFloat(rd.Dv.value),
+            feed: parseFloat(rd.feed.value), kill: parseFloat(rd.kill.value),
+            rdD: parseFloat(rd.D.value), rdR: parseFloat(rd.r.value),
         };
 
         statusText.textContent = 'Running simulation on server...';
@@ -379,6 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             drawHeatmap(heatmapData);
             const isPde = inputs.mode.value === 'pde';
+            const isRD = (inputs.mode.value === 'fisher' || inputs.mode.value === 'gray-scott');
             const flat = heatmapData.data.reduce((a, r) => a.concat(r), []);
             const lo = Math.min.apply(null, flat), hi = Math.max.apply(null, flat);
             const isUniform = (hi - lo) < 1e-9;
@@ -390,7 +444,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? `Analytical steady state (${heatmapData.rows}x${heatmapData.cols})`
                 : `${scheme ? scheme.charAt(0).toUpperCase() + scheme.slice(1) : 'Complete'}`
                   + ` \u2014 ${heatmapData.step + 1} steps`
-                  + (heatmapData.F ? `, F = ${heatmapData.F}` : '')
+                  // F is the heat-diffusion number; it means nothing for the
+                  // reaction-diffusion models, which set their own step size.
+                  + ((heatmapData.F && !isRD) ? `, F = ${heatmapData.F}` : '')
                   + ` (${heatmapData.rows}x${heatmapData.cols})`;
 
             if (isUniform) {

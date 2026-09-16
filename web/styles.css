@@ -662,3 +662,20 @@ th {
 }
 
 .cost-ms { color: var(--text-muted); margin-left: 6px; }
+
+/* Reaction-diffusion parameter grid */
+.rd-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 10px 0 4px 0;
+}
+
+.rd-grid label {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.rd-grid input { width: 100%; box-sizing: border-box; }

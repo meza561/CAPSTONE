@@ -8,6 +8,7 @@
 #include <algorithm>
 #include "database.hpp"
 #include "simulation.hpp"
+#include "reaction.hpp"
 
 void exportToJSON(const std::string& filename, int step, int rows, int cols,
                   const std::vector<std::vector<double>>& grid,
@@ -110,11 +111,14 @@ int main(int argc, char* argv[]) {
     }
 
     DT = F_TARGET * DX * DX / ALPHA;
-    if (mode != "pde") {
-        std::cout << "Scheme: " << methodName << "\n";
+    const bool isReactionDiffusion = (mode == "fisher" || mode == "gray-scott");
+    if (!isReactionDiffusion) {
+        if (mode != "pde") {
+            std::cout << "Scheme: " << methodName << "\n";
+        }
+        std::cout << "Using dt = " << DT << " s (diffusion number F = "
+                  << F_TARGET << ")\n";
     }
-    std::cout << "Using dt = " << DT << " s (diffusion number F = "
-              << F_TARGET << ")\n";
 
     // Bound the worst-case footprint of a single run. At the default interval a
     // run stores up to 1000 frames; on a large grid that is far more samples
@@ -127,8 +131,10 @@ int main(int argc, char* argv[]) {
     if (cells * frames > SAMPLE_BUDGET) {
         long long scale = (cells * frames + SAMPLE_BUDGET - 1) / SAMPLE_BUDGET;
         SAVE_INTERVAL *= static_cast<int>(scale);
-        std::cout << "Large grid (" << ROWS << "x" << COLS
-                  << "): saving every " << SAVE_INTERVAL << " steps\n";
+        if (!isReactionDiffusion) {   // RD sets its own frame budget below
+            std::cout << "Large grid (" << ROWS << "x" << COLS
+                      << "): saving every " << SAVE_INTERVAL << " steps\n";
+        }
     }
 
     // Judge convergence relative to the problem's temperature scale. A fixed
@@ -150,7 +156,85 @@ int main(int argc, char* argv[]) {
 
     if (!db.init()) return 1;
 
-    if (mode == "pde") {
+    if (mode == "fisher" || mode == "gray-scott") {
+        // ---- Reaction-diffusion ----------------------------------------
+        // Same five-point Laplacian as the heat solver, plus a reaction term.
+        const bool gs = (mode == "gray-scott");
+        ReactionDiffusion rd(ROWS, COLS,
+            gs ? ReactionDiffusion::Model::GrayScott
+               : ReactionDiffusion::Model::FisherKPP);
+
+        double rdDx = 1.0, rdDt = 1.0;
+        int rdSteps = 5000;
+        std::string rdName;
+
+        if (gs) {
+            const double Du = (argc > 10) ? std::stod(argv[10]) : 0.16;
+            const double Dv = (argc > 11) ? std::stod(argv[11]) : 0.08;
+            const double fd = (argc > 12) ? std::stod(argv[12]) : 0.035;
+            const double kl = (argc > 13) ? std::stod(argv[13]) : 0.065;
+            if (argc > 14) rdSteps = std::stoi(argv[14]);
+            rd.setGrayScott(Du, Dv, fd, kl);
+            rd.setSpacing(1.0);          // the normalisation Gray-Scott is quoted in
+            rdDt = 1.0;
+            rd.seedGrayScott(11u, 4, 0.02);
+            rdName = "Gray-Scott (Turing)";
+            std::cout << "Gray-Scott: Du=" << Du << " Dv=" << Dv
+                      << " feed=" << fd << " kill=" << kl << "\n";
+        } else {
+            const double Dd = (argc > 10) ? std::stod(argv[10]) : 0.2;
+            const double rr = (argc > 11) ? std::stod(argv[11]) : 1.0;
+            if (argc > 12) rdSteps = std::stoi(argv[12]);
+            // The travelling front is only sqrt(D/r) wide. Resolve it with a
+            // few cells, or the discrete wave does not travel at c* = 2*sqrt(D*r).
+            rdDx = std::max(0.02, std::sqrt(Dd / std::max(rr, 1e-9)) / 4.0);
+            rdDt = 0.2 * rdDx * rdDx / std::max(Dd, 1e-9);
+            rd.setFisher(Dd, rr);
+            rd.setSpacing(rdDx);
+            rd.seedFisher(std::max(3, static_cast<int>(2.0 / rdDx)));
+            rdName = "Fisher-KPP";
+            const double cstar = 2.0 * std::sqrt(Dd * rr);
+            std::cout << "Fisher-KPP: D=" << Dd << " r=" << rr
+                      << " dx=" << rdDx << " c*=" << cstar << "\n";
+
+            // The front would otherwise run off the end and fill the domain,
+            // leaving a uniform field that looks like nothing happened. Stop
+            // while it is still travelling.
+            const double tCross = 0.85 * (COLS * rdDx) / std::max(cstar, 1e-9);
+            const int maxUseful = static_cast<int>(tCross / rdDt);
+            if (maxUseful > 0 && rdSteps > maxUseful) {
+                std::cout << "Front reaches the far edge at step " << maxUseful
+                          << "; stopping there.\n";
+                rdSteps = maxUseful;
+            }
+        }
+        rd.setDt(rdDt);
+        if (rdSteps < 1) rdSteps = 1;
+        if (rdSteps > 200000) rdSteps = 200000;
+
+        // Roughly 150 frames is ample for the slider, and each frame costs
+        // rows*cols database rows - 500 frames of a 128x128 run is 200 MB.
+        int saveEvery = std::max(1, rdSteps / 150);
+        const long long rdCells = static_cast<long long>(ROWS) * COLS;
+        const long long RD_BUDGET = 3000000LL;
+        while ((rdSteps / saveEvery + 1) * rdCells > RD_BUDGET) saveEvery *= 2;
+        std::cout << "Running " << rdSteps << " steps, saving every "
+                  << saveEvery << "\n";
+
+        if (!db.beginRun()) return 1;
+        db.saveTimestep(0, rd.field());
+        for (int s = 1; s <= rdSteps; ++s) {
+            rd.step();
+            if (s % saveEvery == 0 || s == rdSteps) db.saveTimestep(s, rd.field());
+        }
+        if (!db.endRun()) return 1;
+
+        exportToJSON("latest_heatmap.json", rdSteps, ROWS, COLS, rd.field(),
+                     rdDt, saveEvery, rdName, F_TARGET);
+        std::cout << "Simulation complete. Output written to latest_heatmap.json\n";
+        return 0;
+
+    } else if (mode == "pde") {
         std::cout << "Running Analytical PDE Solver...\n";
         sim.solveAnalytical(topTemp, bottomTemp, leftTemp, rightTemp);
         db.beginRun();

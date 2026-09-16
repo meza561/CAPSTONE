@@ -96,6 +96,35 @@ resolution) and each run clears the previous one, so the database reflects only
 the current run. The interval widens automatically on large grids to bound the
 file size.
 
+## Reaction-Diffusion
+
+The same five-point Laplacian with a reaction term added becomes a
+pattern-formation model - the link between heat conduction and morphogenesis.
+Edges are zero-flux (Neumann) rather than Dirichlet, so patterns are not
+suppressed at the boundary, and the fields seed themselves.
+
+### Fisher-KPP
+
+$$u_t = D \nabla^2 u + r\,u(1-u)$$
+
+One species: diffusion plus logistic growth, producing a travelling population
+front. Its asymptotic speed is exactly $c^* = 2\sqrt{Dr}$, which makes it a
+validation case rather than just a picture - see the table below.
+
+The front is only $\sqrt{D/r}$ wide, so the solver picks $\Delta x$ at a
+quarter of that; at $\Delta x = 1$ the front is thinner than one cell and the
+discrete wave does not travel at the continuum speed.
+
+### Gray-Scott
+
+$$u_t = D_u \nabla^2 u - uv^2 + f(1-u), \qquad
+  v_t = D_v \nabla^2 v + uv^2 - (f+k)v$$
+
+Two species with unequal diffusivities - the Turing mechanism. The display
+shows the activator $v$. Named regimes are provided as presets (spots, stripes,
+mazes, coral, solitons, bubbles) because most $(f, k)$ pairs give a blank field;
+editing either value switches the dropdown to Custom.
+
 ## Validation
 
 ### Convergence and stability study
@@ -179,7 +208,8 @@ The analytical solver matches to machine precision; FDM converges to within
 - `GET /`: Serves the frontend.
 - `POST /run`: Executes a simulation.
   - **Payload**: `{ "rows": 20, "cols": 20, "top": 100, "bottom": 0, "left": 0, "right": 0, "mode": "fdm", "alpha": 0.01 }`
-    - `mode`: `fdm` (explicit), `be` (backward Euler), `cn` (Crank-Nicolson), `pde` (analytical)
+    - `mode`: `fdm` (explicit), `be` (backward Euler), `cn` (Crank-Nicolson), `pde` (analytical), `fisher`, `gray-scott`
+    - reaction-diffusion: `rdSteps`, plus `rdD`/`rdR` for Fisher-KPP or `Du`/`Dv`/`feed`/`kill` for Gray-Scott
     - `F`: diffusion number, implicit schemes only; explicit is pinned at 0.2
     - optional heat sources: `"hasPointSource": true, "sources": [{"x": 50, "y": 50, "temp": 1000}, {"x": 20, "y": 80, "temp": 500}]`
       (coordinates are bottom-left origin; out-of-range values are clamped to the grid.
@@ -190,11 +220,28 @@ The analytical solver matches to machine precision; FDM converges to within
 - `GET /run?time=X`: Retrieves the stored state at timestep X, snapping down to the nearest saved frame.
 - `GET /study`: Returns the convergence/stability results, or 404 if `./run_study.sh` has not been run.
 
+**Fisher-KPP front speed.** Measured against the exact $c^* = 2\sqrt{Dr}$ for
+$D = 0.2$, $r = 1$ (so $c^* = 0.89443$), over successive time windows:
+
+| Window | Measured c | Relative error |
+|---|---|---|
+| [10, 20] | 0.83488 | 6.66% |
+| [20, 40] | 0.86375 | 3.43% |
+| [40, 80] | 0.87625 | 2.03% |
+| [80, 160] | 0.88196 | 1.39% |
+| [160, 320] | **0.88470** | **1.09%** |
+
+The speed converges monotonically toward $c^*$ **from below**, which is the
+expected behaviour: Bramson's result gives $c(t) \sim c^* - 3/(2\lambda t)$
+with $\lambda = \sqrt{r/D}$, an algebraic $1/t$ correction, so any finite-time
+measurement sits below $c^*$ and closes slowly.
+
 The study also checks rotational symmetry (exact to machine precision) and the
 discrete maximum principle (no interior extremum).
 
 ## Project Structure
-- `simulation.hpp`: the solver itself (FDM step + analytical solution), shared by the app and the study.
+- `simulation.hpp`: the heat solver (explicit, backward Euler, Crank-Nicolson, analytical), shared by the app and the study.
+- `reaction.hpp`: reaction-diffusion (Fisher-KPP, Gray-Scott).
 - `main.cpp`: CLI and JSON export for the web application.
 - `database.cpp` / `database.hpp`: SQLite persistence for timesteps.
 - `study.cpp`: convergence and stability study.

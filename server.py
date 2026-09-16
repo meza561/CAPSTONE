@@ -133,7 +133,7 @@ def run_simulation():
         mode = str(data.get('mode', 'fdm'))
         if mode == 'explicit':
             mode = 'fdm'
-        if mode not in ('fdm', 'be', 'cn', 'pde'):
+        if mode not in ('fdm', 'be', 'cn', 'pde', 'fisher', 'gray-scott'):
             mode = 'fdm'
 
         # Diffusion number. The explicit scheme is only stable to 0.25, so it
@@ -182,7 +182,25 @@ def run_simulation():
         # Execute the C++ binary
         cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha,
                str(diffusion)]
-        cmd.extend(source_args)
+
+        if mode in ('fisher', 'gray-scott'):
+            # Reaction-diffusion takes its own parameters instead of heat
+            # sources; boundary temperatures do not apply (edges are zero-flux).
+            steps = _clamp(data.get('rdSteps', 5000), 1, 200000, 5000)
+            if mode == 'gray-scott':
+                cmd.extend([
+                    str(_clamp_float(data.get('Du', 0.16), 1e-4, 0.25, 0.16)),
+                    str(_clamp_float(data.get('Dv', 0.08), 1e-4, 0.25, 0.08)),
+                    str(_clamp_float(data.get('feed', 0.035), 0.0, 0.2, 0.035)),
+                    str(_clamp_float(data.get('kill', 0.065), 0.0, 0.2, 0.065)),
+                    str(steps)])
+            else:
+                cmd.extend([
+                    str(_clamp_float(data.get('rdD', 0.2), 1e-4, 100.0, 0.2)),
+                    str(_clamp_float(data.get('rdR', 1.0), 1e-4, 100.0, 1.0)),
+                    str(steps)])
+        else:
+            cmd.extend(source_args)
             
         try:
             with SIM_LOCK:

@@ -254,6 +254,9 @@
             statTile('Stability threshold', 'F = 0.25', `${stable.length} stable / ${unstable.length} divergent`, '') +
             statTile('Maximum principle', d.sanity.maximum_principle.holds ? 'Holds' : 'Violated',
                      'no interior extremum', d.sanity.maximum_principle.holds ? 'good' : 'bad') +
+            (d.fisher ? statTile('Fisher\u2013KPP front speed',
+                     `${(d.fisher.final_rel_err * 100).toFixed(1)}%`,
+                     `from exact c* = 2\u221a(Dr) = ${d.fisher.c_star.toFixed(4)}`, 'good') : '') +
             (d.cost ? statTile('Steps to steady state',
                      `${d.cost.runs[0].steps.toLocaleString()} \u2192 ${d.cost.runs[2].steps.toLocaleString()}`,
                      'explicit \u2192 Crank\u2013Nicolson', 'good') : '');

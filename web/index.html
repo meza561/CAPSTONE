@@ -31,6 +31,8 @@
                             <option value="be">Backward Euler (implicit)</option>
                             <option value="cn">Crank&ndash;Nicolson (implicit)</option>
                             <option value="pde">Analytical steady state</option>
+                            <option value="fisher">Fisher&ndash;KPP (population front)</option>
+                            <option value="gray-scott">Gray&ndash;Scott (Turing patterns)</option>
                         </select>
                     </div>
 
@@ -41,6 +43,46 @@
                             <span class="separator">×</span>
                             <input type="number" id="cols" value="20" min="2" max="300" placeholder="Cols">
                         </div>
+                    </div>
+
+                    <div id="rd-params" class="input-group hidden">
+                        <p class="ps-hint" id="rd-intro"></p>
+
+                        <div id="gs-fields" class="hidden">
+                            <label for="gsPreset">Pattern regime</label>
+                            <select id="gsPreset" class="mode-select">
+                                <option value="0.035,0.065">Spots</option>
+                                <option value="0.030,0.057">Stripes</option>
+                                <option value="0.029,0.057">Mazes</option>
+                                <option value="0.055,0.062">Coral</option>
+                                <option value="0.030,0.062">Solitons</option>
+                                <option value="0.012,0.050">Bubbles</option>
+                                <option value="custom">Custom&hellip;</option>
+                            </select>
+                            <div class="rd-grid">
+                                <div><label for="gsFeed">Feed f</label>
+                                     <input type="number" id="gsFeed" value="0.035" step="0.001" min="0" max="0.2"></div>
+                                <div><label for="gsKill">Kill k</label>
+                                     <input type="number" id="gsKill" value="0.065" step="0.001" min="0" max="0.2"></div>
+                                <div><label for="gsDu">D<sub>u</sub></label>
+                                     <input type="number" id="gsDu" value="0.16" step="0.01" min="0.0001" max="0.25"></div>
+                                <div><label for="gsDv">D<sub>v</sub></label>
+                                     <input type="number" id="gsDv" value="0.08" step="0.01" min="0.0001" max="0.25"></div>
+                            </div>
+                        </div>
+
+                        <div id="fk-fields" class="hidden">
+                            <div class="rd-grid">
+                                <div><label for="fkD">Diffusivity D</label>
+                                     <input type="number" id="fkD" value="0.2" step="0.05" min="0.0001"></div>
+                                <div><label for="fkR">Growth rate r</label>
+                                     <input type="number" id="fkR" value="1.0" step="0.1" min="0.0001"></div>
+                            </div>
+                            <p class="ps-hint" id="fk-speed"></p>
+                        </div>
+
+                        <label for="rdSteps">Steps</label>
+                        <input type="number" id="rdSteps" value="6000" step="1000" min="1" max="200000">
                     </div>
 
                     <div id="f-params" class="input-group hidden">
@@ -54,7 +96,7 @@
                         <input type="number" id="alpha" value="0.01" min="0.0001" max="1000" step="0.001">
                     </div>
 
-                    <div class="input-group">
+                    <div class="input-group" id="boundary-group">
                         <label>Boundary Temperatures (°C)</label>
                         <div class="temp-grid">
                             <div class="temp-field">

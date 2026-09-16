@@ -16,6 +16,7 @@
 // Outputs study_results.json plus one CSV per study.
 
 #include "simulation.hpp"
+#include "reaction.hpp"
 
 #include <iostream>
 #include <fstream>
@@ -479,7 +480,64 @@ int main() {
          << ", \"boundary_min\": " << num(bMin) << ", \"boundary_max\": " << num(bMax)
          << ", \"holds\": " << (holds ? "true" : "false") << "}\n";
 
-    json << "  }\n}\n";
+    json << "  },\n";
+
+    // ----------------------------------------------------- 5. Fisher-KPP
+    // The travelling front of u_t = D u_xx + r u (1-u) has an exact asymptotic
+    // speed c* = 2 sqrt(D r). Convergence to it is algebraic, not exponential:
+    // Bramson's result gives c(t) ~ c* - 3/(2 lambda t) with lambda = sqrt(r/D),
+    // so a finite-time measurement always sits below c* and closes slowly.
+    std::cout << "\n=== 5. FISHER-KPP FRONT SPEED ===\n";
+    {
+        const double Dk = 0.2, rk = 1.0, dxk = 0.1;
+        const double dtk = 0.2 * dxk * dxk / Dk;
+        const double cstar = 2.0 * std::sqrt(Dk * rk);
+        std::cout << "D = " << Dk << ", r = " << rk << ", dx = " << dxk
+                  << "  ->  exact c* = " << std::fixed << std::setprecision(5)
+                  << cstar << "\n\n";
+        std::cout << "     window          measured c       c* - c     rel err\n";
+
+        ReactionDiffusion rd(5, 4000, ReactionDiffusion::Model::FisherKPP);
+        rd.setFisher(Dk, rk);
+        rd.setSpacing(dxk);
+        rd.setDt(dtk);
+        rd.seedFisher(20);
+
+        std::ofstream csvF("study_fisher.csv");
+        csvF << "t0,t1,measured_c,exact_c,rel_err\n";
+        json << "  \"fisher\": {\"D\": " << num(Dk) << ", \"r\": " << num(rk)
+             << ", \"dx\": " << num(dxk) << ", \"c_star\": " << num(cstar)
+             << ",\n    \"windows\": [\n";
+
+        const std::vector<double> marks = {10, 20, 40, 80, 160, 320};
+        long long nprev = static_cast<long long>(marks[0] / dtk);
+        for (long long k = 0; k < nprev; ++k) rd.step();
+        double xprev = rd.frontPosition();
+        double lastC = 0.0;
+
+        for (size_t w = 1; w < marks.size(); ++w) {
+            const long long nn = static_cast<long long>(marks[w] / dtk);
+            for (long long k = nprev; k < nn; ++k) rd.step();
+            const double x = rd.frontPosition();
+            if (x < 0) break;
+            const double c = (x - xprev) / (marks[w] - marks[w - 1]);
+            const double rel = std::fabs(c - cstar) / cstar;
+            lastC = c;
+            std::cout << "  [" << std::setprecision(0) << std::setw(4) << marks[w - 1] << ","
+                      << std::setw(4) << marks[w] << "]"
+                      << std::setw(18) << std::fixed << std::setprecision(5) << c
+                      << std::setw(13) << (cstar - c)
+                      << std::setw(11) << std::setprecision(2) << (100.0 * rel) << "%\n";
+            csvF << marks[w-1] << "," << marks[w] << "," << c << "," << cstar << "," << rel << "\n";
+            json << "      {\"t0\": " << num(marks[w-1]) << ", \"t1\": " << num(marks[w])
+                 << ", \"c\": " << num(c) << ", \"rel_err\": " << num(rel) << "}"
+                 << (w + 1 < marks.size() ? "," : "") << "\n";
+            xprev = x; nprev = nn;
+        }
+        std::cout << "\n  approaches c* from below, as Bramson's 1/t correction predicts\n";
+        json << "    ], \"final_c\": " << num(lastC)
+             << ", \"final_rel_err\": " << num(std::fabs(lastC - cstar) / cstar) << "\n  }\n}\n";
+    }
     json.close();
 
     std::cout << "\nWrote study_results.json, study_spatial.csv, study_temporal.csv, study_stability.csv\n";
