@@ -262,8 +262,11 @@ Apple's clang does not ship it. To enable it on macOS:
 brew install libomp
 ```
 
-Measured on an Apple Silicon Mac, 10 hardware threads (`./run_study.sh`
-reports this for whatever machine it runs on):
+Measured on an Apple Silicon Mac with 10 hardware threads (`./run_study.sh`
+detects the count for whatever machine it runs on). The figures below are one
+sweep taken under `OMP_SCHEDULE=guided`; the default `static` schedule landed
+within about ten percent of them at every point compared, which is the same
+order as the run-to-run variation (see the scheduling note at the end):
 
 | Grid | Scheme | 2 | 4 | 8 | 10 threads |
 |---|---|---|---|---|---|
@@ -274,20 +277,22 @@ reports this for whatever machine it runs on):
 
 Three things in that table are worth more than the headline number.
 
-**Speedup peaks at four threads and then falls back** in three of the four
-cases. Two effects combine. The machine has heterogeneous cores - performance
-and efficiency - so once the thread count exceeds the performance-core count,
-statically scheduled work lands on slower cores and the fast ones wait at the
-barrier. On top of that a five-point stencil moves a lot of memory per
-arithmetic operation, so bandwidth saturates early. More threads stop helping
-well before the core count is exhausted.
+**Speedup peaks at four threads** and does not recover: both 256 cases fall
+back sharply after it, the 512 explicit case plateaus, and only Crank-Nicolson
+at 512 keeps climbing all the way to 10 threads. Two effects combine. The
+machine has heterogeneous cores - performance and efficiency - so once the
+thread count exceeds the performance-core count, evenly divided work lands on
+slower cores and the fast ones wait at the barrier. On top of that a
+five-point stencil moves a lot of memory per arithmetic operation, so
+bandwidth saturates early. More threads stop helping well before the core
+count is exhausted.
 
-**Crank-Nicolson scales better than the explicit scheme** - 4.25x against 2.85x
-at 512. The implicit step does more arithmetic per byte moved (a tridiagonal
-solve rather than a single stencil pass), so it is further from the bandwidth
-limit and has more headroom to parallelise. The cheaper kernel is the harder
-one to speed up, which is the opposite of the intuition that cheap work
-parallelises well.
+**Crank-Nicolson scales better than the explicit scheme** - 4.70x against
+2.78x at 512 with 10 threads. The implicit step does more arithmetic per byte
+moved (a tridiagonal solve rather than a single stencil pass), so it is further
+from the bandwidth limit and has more headroom to parallelise. The cheaper
+kernel is the harder one to speed up, which is the opposite of the intuition
+that cheap work parallelises well.
 
 **Bigger grids scale better** - 512 beats 256 everywhere - because there is more
 work per thread to amortise the fork/join overhead. At 256 with 10 threads the
