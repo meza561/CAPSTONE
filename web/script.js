@@ -7,7 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const tabBtns = document.querySelectorAll('.tab-btn');
     const tabs = {
         'sim-tab': document.getElementById('sim-tab'),
-        'history-tab': document.getElementById('history-tab')
+        'history-tab': document.getElementById('history-tab'),
+        'validation-tab': document.getElementById('validation-tab')
     };
 
     const inputs = {
@@ -90,6 +91,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (btn.dataset.tab === 'history-tab') {
                 renderHistory();
+            } else if (btn.dataset.tab === 'validation-tab') {
+                // Loaded on first view; the study JSON is static between runs.
+                if (typeof renderValidation === 'function') renderValidation();
             }
         });
     });

@@ -16,6 +16,7 @@
         <nav class="nav-tabs">
             <button class="tab-btn active" data-tab="sim-tab">Simulation</button>
             <button class="tab-btn" data-tab="history-tab">History</button>
+            <button class="tab-btn" data-tab="validation-tab">Validation</button>
         </nav>
 
         <main class="dashboard-container">
@@ -129,8 +130,45 @@
                     <button id="clearHistoryBtn" class="secondary-btn">Clear History</button>
                 </section>
             </div>
+            <div class="main-layout hidden" id="validation-tab">
+                <section class="panel validation-panel">
+                    <h2 class="panel-title">Numerical Validation</h2>
+                    <p class="panel-note">
+                        Convergence and stability of the finite-difference scheme, measured
+                        against the exact analytical solution. Regenerate with
+                        <code>./run_study.sh</code>.
+                    </p>
+
+                    <div id="study-status" class="study-status">Loading study results&hellip;</div>
+
+                    <div id="study-content" class="hidden">
+                        <div class="stat-row" id="study-stats"></div>
+
+                        <figure class="chart-card">
+                            <figcaption id="cap-spatial" class="chart-caption"></figcaption>
+                            <div id="chart-spatial"></div>
+                        </figure>
+
+                        <figure class="chart-card">
+                            <figcaption id="cap-temporal" class="chart-caption"></figcaption>
+                            <div id="chart-temporal"></div>
+                        </figure>
+
+                        <figure class="chart-card">
+                            <figcaption id="cap-stability" class="chart-caption"></figcaption>
+                            <div id="chart-stability"></div>
+                        </figure>
+
+                        <details class="data-details">
+                            <summary>View the underlying numbers</summary>
+                            <div id="study-tables" class="table-responsive"></div>
+                        </details>
+                    </div>
+                </section>
+            </div>
         </main>
     </div>
+    <script src="validation.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

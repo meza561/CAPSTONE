@@ -97,6 +97,23 @@ def index():
 def static_files(path):
     return send_from_directory(WEB_DIR, path)
 
+@app.route('/study')
+def study():
+    """Serve the convergence/stability results produced by ./run_study.sh."""
+    path = 'study_results.json'
+    if not os.path.exists(path):
+        return jsonify({
+            "status": "error",
+            "message": "No study results found."
+        }), 404
+    try:
+        with open(path) as f:
+            return jsonify(json.load(f))
+    except (OSError, ValueError) as e:
+        return jsonify({"status": "error",
+                        "message": f"Could not read study results: {e}"}), 500
+
+
 @app.route('/run', methods=['POST'])
 def run_simulation():
     data = request.json

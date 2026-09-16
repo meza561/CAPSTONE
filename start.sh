@@ -19,7 +19,7 @@ fi
 
 if [ -n "$CMAKE" ]; then
     "$CMAKE" -S . -B build
-    "$CMAKE" --build build
+    "$CMAKE" --build build --target heat_sim
     # server.py invokes ./heat_sim from the project root, so publish the fresh
     # build there. Replace it ATOMICALLY: macOS caches a binary's code
     # signature against its inode, and copying over the file in place leaves a

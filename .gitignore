@@ -1,5 +1,6 @@
 # Compiled Binaries
 heat_sim
+heat_study
 build/
 cmake-build-debug/
 
@@ -21,3 +22,8 @@ latest_heatmap.json
 .idea/
 .DS_Store
 .openclaw/
+
+# Study outputs (regenerate with ./run_study.sh)
+study_results.json
+study_*.csv
+figures/

@@ -342,3 +342,145 @@ th {
         height: 90vw;
     }
 }
+
+/* The simulation tab is a 380px control sidebar + canvas grid. The history and
+   validation tabs are single full-width panels, so they opt out of that
+   template - otherwise their content is squeezed into the 380px column. */
+#history-tab,
+#validation-tab {
+    display: block;
+}
+
+/* ---------- Validation tab ---------- */
+
+.validation-panel {
+    width: 100%;
+}
+
+.panel-note {
+    color: var(--text-muted);
+    font-size: 0.92rem;
+    margin: -6px 0 22px 0;
+    max-width: 70ch;
+}
+
+.panel-note code,
+.study-status code {
+    background: var(--accent-champagne);
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 0.88em;
+}
+
+.study-status {
+    padding: 28px;
+    text-align: center;
+    color: var(--text-muted);
+    background: var(--accent-champagne);
+    border-radius: var(--radius);
+}
+
+.study-status .muted { color: var(--text-muted); }
+
+/* KPI row: headline numbers read as tiles, not as a chart */
+.stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    margin-bottom: 28px;
+}
+
+.stat-tile {
+    background: var(--accent-champagne);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+}
+
+.stat-value {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--text-main);
+    line-height: 1.1;
+}
+
+.stat-value.good { color: var(--primary-emerald); }
+.stat-value.bad  { color: #b3261e; }
+
+.stat-label {
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-top: 6px;
+}
+
+.stat-note {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.chart-card {
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: 18px 18px 6px 18px;
+    margin: 0 0 22px 0;
+}
+
+.chart-caption {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-bottom: 10px;
+    max-width: 80ch;
+}
+
+.chart-tip {
+    position: absolute;
+    z-index: 50;
+    pointer-events: none;
+    background: #1a2e26;
+    color: #fff;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    padding: 7px 10px;
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+    white-space: nowrap;
+}
+
+.data-details {
+    margin-top: 6px;
+}
+
+.data-details summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--primary-emerald);
+    padding: 8px 0;
+}
+
+.data-details h4 {
+    margin: 18px 0 8px 0;
+    color: var(--text-main);
+    font-size: 0.95rem;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.data-table th,
+.data-table td {
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+    color: var(--text-muted);
+    font-weight: 600;
+}
