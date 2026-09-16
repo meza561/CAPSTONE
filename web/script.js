@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // which only works when an id is also a valid JS identifier - so the
     // hyphenated ones (time-evolution-ctrl, alpha-params) threw ReferenceError.
     const psParamsDiv  = document.getElementById('ps-params');
+    const psGroup      = document.getElementById('ps-group');
     const alphaParamsDiv = document.getElementById('alpha-params');
     const timeCtrl     = document.getElementById('time-evolution-ctrl');
     const timeSlider   = document.getElementById('timeSlider');
@@ -48,6 +49,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function syncModeUI() {
         const isPde = inputs.mode.value === 'pde';
         alphaParamsDiv.classList.toggle('hidden', isPde);
+        // The analytical solver works from the four boundary temperatures
+        // only - it has no notion of a point source - so hide the control
+        // rather than let it sit there being silently ignored.
+        if (psGroup) psGroup.classList.toggle('hidden', isPde);
         if (isPde) timeCtrl.classList.add('hidden');
     }
     inputs.mode.addEventListener('change', syncModeUI);
@@ -116,8 +121,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Update legend
+        const uniform = (max - min) < 1e-9;
         document.getElementById('legendMin').textContent = `${min.toFixed(1)}°C`;
-        document.getElementById('legendMax').textContent = `${max.toFixed(1)}°C`;
+        document.getElementById('legendMax').textContent =
+            uniform ? `${max.toFixed(1)}°C (uniform)` : `${max.toFixed(1)}°C`;
 
         const range = max - min || 1;
 
@@ -184,7 +191,29 @@ document.addEventListener('DOMContentLoaded', () => {
             simSaveInterval = heatmapData.saveInterval || 1;
 
             drawHeatmap(heatmapData);
-            statusText.textContent = `Complete! Max Step ${heatmapData.step} (${heatmapData.rows}x${heatmapData.cols})`;
+            const isPde = inputs.mode.value === 'pde';
+            const flat = heatmapData.data.reduce((a, r) => a.concat(r), []);
+            const lo = Math.min.apply(null, flat), hi = Math.max.apply(null, flat);
+            const isUniform = (hi - lo) < 1e-9;
+
+            // A steady state is a single frame, so "max step" is meaningless
+            // for the analytical solver and reads like a failure.
+            let msg = isPde
+                ? `Analytical steady state (${heatmapData.rows}x${heatmapData.cols})`
+                : `Complete! Max Step ${heatmapData.step} (${heatmapData.rows}x${heatmapData.cols})`;
+
+            if (isUniform) {
+                msg += ` \u2014 plate is uniformly ${hi.toFixed(1)}\u00b0C`;
+                const noHeat = [params.top, params.bottom, params.left, params.right]
+                    .every(v => Math.abs(v) < 1e-9);
+                if (isPde && params.hasPointSource) {
+                    msg += '. Analytical mode solves from the boundary temperatures only, '
+                         + 'so the point source is not used \u2014 switch to FDM for that.';
+                } else if (noHeat) {
+                    msg += '. Set a boundary temperature, or enable a point source in FDM mode.';
+                }
+            }
+            statusText.textContent = msg;
             
             if (inputs.mode.value === 'fdm') {
                 timeCtrl.classList.remove('hidden');
