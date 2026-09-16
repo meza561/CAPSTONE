@@ -69,18 +69,41 @@
                     </div>
 
                     <div class="input-group" id="ps-group">
-                        <label>Point Source Origin</label>
+                        <label>Heat Sources</label>
                         <div class="ps-controls">
                             <div class="ps-toggle">
                                 <input type="checkbox" id="hasPointSource">
-                                <label for="hasPointSource">Enable Point Source</label>
+                                <label for="hasPointSource">Enable heat sources</label>
                             </div>
+
                             <div id="ps-params" class="ps-inputs hidden">
-                                <div class="ps-coord-group">
-                                    <input type="number" id="psR" placeholder="Row (X)" value="10">
-                                    <input type="number" id="psC" placeholder="Col (Y)" value="10">
+                                <p class="ps-hint">
+                                    Each source is held at a fixed temperature.
+                                    <strong>x</strong> runs right, <strong>y</strong> runs up
+                                    from the bottom-left corner.
+                                </p>
+
+                                <div class="src-head">
+                                    <span>x</span>
+                                    <span>y</span>
+                                    <span>Temp (°C)</span>
+                                    <span></span>
                                 </div>
-                                <input type="number" id="psTemp" placeholder="Temperature (°C)" value="100">
+                                <div id="src-list"></div>
+
+                                <button type="button" id="addSrcBtn" class="ghost-btn src-add">
+                                    + Add heat spot
+                                </button>
+
+                                <label for="srcQuick" class="src-quick-label">
+                                    Quick add &mdash; type <code>(x, y, C)</code>
+                                </label>
+                                <div class="src-quick-row">
+                                    <input type="text" id="srcQuick"
+                                           placeholder="(50, 50, 1000); (20, 80, 500)">
+                                    <button type="button" id="srcQuickBtn" class="ghost-btn">Add</button>
+                                </div>
+                                <div id="srcQuickMsg" class="src-quick-msg"></div>
                             </div>
                         </div>
                     </div>

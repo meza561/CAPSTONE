@@ -49,10 +49,11 @@ int main(int argc, char* argv[]) {
     double rightTemp = 0.0;
     std::string mode = "fdm";
 
-    // Point source params
-    bool hasPointSource = false;
-    int psR = 0, psC = 0;
-    double psTemp = 0.0;
+    // Heat sources. Trailing arguments are (row, col, temp) triples, one per
+    // source, so any number of them can be passed. The API converts the UI's
+    // (x, y) coordinates into row/col before calling.
+    struct SourceArg { int r; int c; double t; };
+    std::vector<SourceArg> sources;
 
     if (argc >= 7) {
         ROWS = std::stoi(argv[1]);
@@ -63,11 +64,10 @@ int main(int argc, char* argv[]) {
         rightTemp = std::stod(argv[6]);
         if (argc >= 8) mode = argv[7];
         if (argc >= 9) ALPHA = std::stod(argv[8]);
-        if (argc >= 12) {
-            hasPointSource = true;
-            psR = std::stoi(argv[9]);
-            psC = std::stoi(argv[10]);
-            psTemp = std::stod(argv[11]);
+        for (int k = 9; k + 2 < argc; k += 3) {
+            sources.push_back({ std::stoi(argv[k]),
+                                std::stoi(argv[k + 1]),
+                                std::stod(argv[k + 2]) });
         }
     }
 
@@ -109,8 +109,10 @@ int main(int argc, char* argv[]) {
     {
         double tempScale = std::max({std::fabs(topTemp), std::fabs(bottomTemp),
                                      std::fabs(leftTemp), std::fabs(rightTemp),
-                                     hasPointSource ? std::fabs(psTemp) : 0.0,
                                      1.0});
+        for (const auto& s : sources) {
+            tempScale = std::max(tempScale, std::fabs(s.t));
+        }
         CONVERGENCE_THRESHOLD = 1e-7 * tempScale;
     }
 
@@ -132,8 +134,11 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, 0, leftTemp);
         for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, COLS - 1, rightTemp);
 
-        if (hasPointSource) {
-            sim.addPointSource(psR, psC, psTemp);
+        for (const auto& s : sources) {
+            sim.addPointSource(s.r, s.c, s.t);
+        }
+        if (!sources.empty()) {
+            std::cout << "Heat sources: " << sources.size() << "\n";
         }
 
         std::cout << "Starting FDM Simulation (" << ROWS << "x" << COLS << ")...\n";

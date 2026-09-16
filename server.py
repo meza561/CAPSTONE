@@ -15,6 +15,7 @@ SIM_LOCK = threading.Lock()
 
 # Path to the compiled C++ binary
 SIM_BINARY = "./heat_sim"
+MAX_SOURCES = 32
 WEB_DIR = "./web"
 DB_NAME = "heat_sim.db"
 
@@ -135,17 +136,40 @@ def run_simulation():
         alpha = str(_clamp_float(data.get('alpha', 0.01), 1e-4, 1e3, 0.01))
         
         # Point source parameters
-        # Keep the source inside the grid: the solver silently ignores an
-        # out-of-range coordinate, which looks like the feature doing nothing.
-        has_ps = bool(data.get('hasPointSource', False))
-        ps_r = str(_clamp(data.get('psR', 0), 0, n_rows - 1, 0))
-        ps_c = str(_clamp(data.get('psC', 0), 0, n_cols - 1, 0))
-        ps_temp = str(_clamp_float(data.get('psTemp', 0), -1e6, 1e6, 0.0))
+        # Heat sources arrive as [{x, y, temp}, ...] in UI coordinates:
+        # origin bottom-left, x to the right, y upward. The solver indexes
+        # [row][col] with row 0 at the top, so the flip happens here and
+        # nowhere else.
+        raw_sources = data.get('sources')
+        if raw_sources is None:
+            # Backward compatibility with the old single-source payload.
+            if data.get('hasPointSource'):
+                raw_sources = [{
+                    'x': data.get('psC', 0),
+                    'y': (n_rows - 1) - _clamp(data.get('psR', 0), 0, n_rows - 1, 0),
+                    'temp': data.get('psTemp', 0),
+                }]
+            else:
+                raw_sources = []
+        if not isinstance(raw_sources, list):
+            raw_sources = []
+
+        source_args = []
+        for s in raw_sources[:MAX_SOURCES]:
+            if not isinstance(s, dict):
+                continue
+            # Clamping rather than rejecting: the solver silently ignores an
+            # out-of-range coordinate, which looks like the feature doing
+            # nothing at all.
+            x = _clamp(s.get('x', 0), 0, n_cols - 1, 0)
+            y = _clamp(s.get('y', 0), 0, n_rows - 1, 0)
+            t = _clamp_float(s.get('temp', 0), -1e6, 1e6, 0.0)
+            row = (n_rows - 1) - y      # flip: y counts up from the bottom
+            source_args.extend([str(row), str(x), str(t)])
 
         # Execute the C++ binary
         cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha]
-        if has_ps:
-            cmd.extend([ps_r, ps_c, ps_temp])
+        cmd.extend(source_args)
             
         try:
             with SIM_LOCK:

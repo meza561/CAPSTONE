@@ -36,8 +36,12 @@ Uses the Finite Difference Method to iteratively solve the heat equation. The
 boundaries are held fixed (Dirichlet), so the interior evolves in time toward
 steady state.
 
-**Point Source Support:** enabling a "Point Source" holds a chosen cell $(X, Y)$
-at a constant temperature, acting as a persistent heat origin.
+**Heat sources.** Any number of cells (up to 32) can be pinned at a fixed
+temperature, acting as persistent heat origins. Each is given as $(x, y, C)$ with
+the origin at the **bottom-left**: $x$ increases to the right, $y$ increases
+upward. The API converts $(x, y)$ into the solver's `[row][col]` indexing, so
+$y = 0$ is the bottom row. Sources apply to FDM only; the analytical solver works
+from the boundary temperatures alone.
 
 ### PDE-driven (Analytical)
 Computes the exact steady-state solution of Laplace's equation on a rectangle
@@ -136,7 +140,9 @@ The analytical solver matches to machine precision; FDM converges to within
 - `GET /`: Serves the frontend.
 - `POST /run`: Executes a simulation.
   - **Payload**: `{ "rows": 20, "cols": 20, "top": 100, "bottom": 0, "left": 0, "right": 0, "mode": "fdm", "alpha": 0.01 }`
-    - optional: `"hasPointSource": true, "psR": 10, "psC": 10, "psTemp": 250`
+    - optional heat sources: `"hasPointSource": true, "sources": [{"x": 50, "y": 50, "temp": 1000}, {"x": 20, "y": 80, "temp": 500}]`
+      (coordinates are bottom-left origin; out-of-range values are clamped to the grid.
+      The older single-source form `psR`/`psC`/`psTemp` is still accepted.)
     - grid dimensions, temperatures and alpha are clamped to sane ranges
   - **Response**: `{ "status", "output", "data": { "step", "rows", "cols", "dt", "saveInterval", "data" } }`
   - On failure, `message` carries the solver's actual stderr.

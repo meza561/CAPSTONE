@@ -484,3 +484,144 @@ th {
     color: var(--text-muted);
     font-weight: 600;
 }
+
+/* ---------- Heat source list ---------- */
+
+.ps-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+    margin: 4px 0 12px 0;
+}
+
+.src-head,
+.src-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.3fr 32px;
+    gap: 8px;
+    align-items: center;
+}
+
+.src-head {
+    margin-bottom: 4px;
+}
+
+.src-head span {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.src-row {
+    margin-bottom: 8px;
+}
+
+.src-row input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.src-del {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 8px;
+    padding: 4px;
+    transition: all 0.15s ease;
+}
+
+.src-del:hover {
+    background: #f3d9d9;
+    color: #b3261e;
+}
+
+.src-empty {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    font-style: italic;
+    margin: 4px 0 10px 0;
+}
+
+.src-add {
+    width: 100%;
+    margin-bottom: 14px;
+}
+
+.src-quick-label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.src-quick-label code {
+    background: var(--accent-champagne);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+.src-quick-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+}
+
+.src-quick-row input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.src-quick-msg {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 6px;
+    min-height: 1em;
+}
+
+.src-quick-msg.is-error {
+    color: #b3261e;
+}
+
+/* Neutral action button. .secondary-btn is the red destructive style used by
+   Clear History; adding a heat spot is not destructive. */
+.ghost-btn {
+    padding: 11px 16px;
+    background-color: transparent;
+    color: var(--primary-emerald);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ghost-btn:hover {
+    background-color: var(--accent-champagne);
+    border-color: var(--primary-emerald);
+}
+
+/* Keep the enable checkbox on one line with its label. */
+.ps-toggle {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 4px;
+}
+
+.ps-toggle input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    flex: 0 0 auto;
+}
+
+.ps-toggle label {
+    margin: 0;
+    font-weight: 600;
+    cursor: pointer;
+}
