@@ -11,6 +11,7 @@ __pycache__/
 
 # Logs and Data
 server.log
+.server.pid
 latest_heatmap.json
 *.db
 *.db-wal

@@ -107,7 +107,18 @@ def run_simulation():
         if has_ps:
             cmd.extend([ps_r, ps_c, ps_temp])
             
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except FileNotFoundError:
+            msg = (f"Simulation binary not found at {SIM_BINARY}. "
+                   f"Build it first by running ./start.sh")
+            print("ERROR:", msg, flush=True)
+            return jsonify({"status": "error", "message": msg}), 500
+        except subprocess.CalledProcessError as e:
+            detail = (e.stderr or e.stdout or "").strip() or f"exit status {e.returncode}"
+            msg = f"Simulation failed: {detail}"
+            print("ERROR:", msg, flush=True)
+            return jsonify({"status": "error", "message": msg}), 500
 
         # Return the latest state by default
         with open('latest_heatmap.json', 'r') as f:

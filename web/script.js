@@ -25,28 +25,44 @@ document.addEventListener('DOMContentLoaded', () => {
         psTemp: document.getElementById('psTemp'),
     };
 
-    const psParamsDiv = document.getElementById('ps-params');
+    // Element handles. These were previously relied on as implicit globals,
+    // which only works when an id is also a valid JS identifier - so the
+    // hyphenated ones (time-evolution-ctrl, pde-params) threw ReferenceError.
+    const psParamsDiv  = document.getElementById('ps-params');
+    const pdeParamsDiv = document.getElementById('pde-params');
+    const timeCtrl     = document.getElementById('time-evolution-ctrl');
+    const timeSlider   = document.getElementById('timeSlider');
+    const timeVal      = document.getElementById('timeVal');
+    const sliderMinLabel = document.getElementById('sliderMinLabel');
+    const sliderMaxLabel = document.getElementById('sliderMaxLabel');
+
+    // Time mapping for the current run. dt is chosen by the solver from the
+    // stability limit for the requested alpha, so it is reported by the
+    // backend rather than assumed here.
+    let simDt = 0.1;
+    let simSaveInterval = 1;
     inputs.hasPS.addEventListener('change', () => {
         psParamsDiv.classList.toggle('hidden', !inputs.hasPS.checked);
     });
 
     timeSlider.addEventListener('input', async () => {
-        const realTime = parseInt(timeSlider.value);
-        timeVal.textContent = realTime;
-        
-        // Temporal Scaling Logic:
-        // Simulation time t = step * dt
-        // Step = t / dt
-        // Using a default dt = 0.1 (as in main.cpp), and assuming 1s = 10 steps.
-        // To be accurate, the server should probably provide dt, but we'll use the sim default.
-        const dt = 0.1;
-        const step = Math.floor(realTime / dt);
-        
+        const realTime = parseFloat(timeSlider.value);
+        timeVal.textContent = Math.round(realTime);
+
+        // Simulation time t = step * dt, so step = t / dt. dt now comes from
+        // the solver (it depends on alpha) instead of being hardcoded.
+        const step = Math.round(realTime / simDt);
+
         try {
             const response = await fetch(`/run?time=${step}`);
             if (!response.ok) throw new Error('Failed to fetch timestep');
             const data = await response.json();
             drawHeatmap(data);
+            // The server snaps to the nearest stored frame, so report the
+            // time actually being displayed rather than the one requested.
+            if (typeof data.step === 'number') {
+                timeVal.textContent = Math.round(data.step * simDt);
+            }
         } catch (e) {
             console.error('Slider error:', e);
         }
@@ -134,23 +150,43 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify(params)
             });
 
-            if (!response.ok) throw new Error('Server error during simulation');
+            if (!response.ok) {
+                // Surface what the server actually said instead of a generic string.
+                let detail = 'Server error during simulation';
+                try {
+                    const err = await response.json();
+                    if (err && err.message) detail = err.message;
+                } catch (_) { /* non-JSON error body */ }
+                throw new Error(detail);
+            }
             
             const result = await response.json();
             const heatmapData = result.data;
+
+            // Adopt the solver's time mapping for this run.
+            simDt = (typeof heatmapData.dt === 'number' && heatmapData.dt > 0)
+                ? heatmapData.dt : 0.1;
+            simSaveInterval = heatmapData.saveInterval || 1;
 
             drawHeatmap(heatmapData);
             statusText.textContent = `Complete! Max Step ${heatmapData.step} (${heatmapData.rows}x${heatmapData.cols})`;
             
             if (inputs.mode.value === 'fdm') {
                 timeCtrl.classList.remove('hidden');
-                // The slider now represents seconds (1 to 1000).
-                // We ensure the max is limited by the simulation's actual convergence/max steps.
-                const dt = 0.1;
-                const maxSeconds = heatmapData.step * dt;
-                timeSlider.max = Math.min(1000, Math.floor(maxSeconds));
-                timeSlider.value = Math.min(1000, Math.floor(maxSeconds));
+
+                // The slider spans real simulated seconds, from t = 0 to how
+                // long this run actually took to settle. That span depends on
+                // alpha, so it is recomputed per run rather than fixed at
+                // 1000s - which used to truncate the run to its first 10%.
+                const maxSeconds = heatmapData.step * simDt;
+                const stepSeconds = Math.max(1, Math.round(simSaveInterval * simDt));
+                timeSlider.min = 0;
+                timeSlider.step = stepSeconds;
+                timeSlider.max = Math.max(stepSeconds, Math.round(maxSeconds));
+                timeSlider.value = timeSlider.max;
                 timeVal.textContent = timeSlider.value;
+                if (sliderMinLabel) sliderMinLabel.textContent = '0s';
+                if (sliderMaxLabel) sliderMaxLabel.textContent = timeSlider.max + 's';
             } else {
                 timeCtrl.classList.add('hidden');
             }
