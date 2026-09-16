@@ -27,6 +27,9 @@
 #include <cmath>
 #include <algorithm>
 #include <chrono>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 using Grid = std::vector<std::vector<double>>;
 
@@ -536,8 +539,84 @@ int main() {
         }
         std::cout << "\n  approaches c* from below, as Bramson's 1/t correction predicts\n";
         json << "    ], \"final_c\": " << num(lastC)
-             << ", \"final_rel_err\": " << num(std::fabs(lastC - cstar) / cstar) << "\n  }\n}\n";
+             << ", \"final_rel_err\": " << num(std::fabs(lastC - cstar) / cstar) << "\n  },\n";
     }
+
+    // ------------------------------------------------------------ 6. scaling
+    // Each grid line is an independent tridiagonal solve and each row of the
+    // explicit update writes only its own row, so both parallelise without
+    // synchronisation. Measured, not assumed: memory bandwidth usually caps
+    // the speedup well below the thread count for a stencil this cheap.
+    std::cout << "\n=== 6. PARALLEL SCALING ===\n";
+#ifdef _OPENMP
+    const int maxThreads = omp_get_max_threads();
+    std::cout << "OpenMP enabled, " << maxThreads << " hardware threads available\n\n";
+#else
+    const int maxThreads = 1;
+    std::cout << "Built without OpenMP - serial timings only.\n"
+                 "  (macOS: brew install libomp, then re-run cmake)\n\n";
+#endif
+    std::cout << "   grid    scheme            threads     seconds    speedup   efficiency\n";
+
+    std::ofstream csvP("study_scaling.csv");
+    csvP << "N,scheme,threads,seconds,speedup\n";
+    json << "  \"scaling\": {\"max_threads\": " << maxThreads
+         << ", \"openmp\": "
+#ifdef _OPENMP
+         << "true"
+#else
+         << "false"
+#endif
+         << ",\n    \"runs\": [\n";
+
+    struct ScaleCase { int N; const char* key; const char* label;
+                       HeatSimulation::Method m; double F; int steps; };
+    const std::vector<ScaleCase> scaleCases = {
+        {256, "explicit", "explicit",       HeatSimulation::Method::Explicit,      0.2, 200},
+        {256, "crank_nicolson", "Crank-Nic", HeatSimulation::Method::CrankNicolson, 5.0, 100},
+        {512, "explicit", "explicit",       HeatSimulation::Method::Explicit,      0.2, 100},
+        {512, "crank_nicolson", "Crank-Nic", HeatSimulation::Method::CrankNicolson, 5.0,  50},
+    };
+
+    bool firstScale = true;
+    for (const ScaleCase& S : scaleCases) {
+        double serialTime = 0.0;
+        for (int th = 1; th <= maxThreads; th *= 2) {
+#ifdef _OPENMP
+            omp_set_num_threads(th);
+#endif
+            const double dx = 1.0 / (S.N - 1);
+            const double dtL = S.F * dx * dx / ALPHA;
+            HeatSimulation sim(S.N, S.N, ALPHA, dx, dtL);
+            sim.setMethod(S.m);
+            applyBoundaries(sim, S.N, 100, 0, 0, 0);
+
+            const auto t0 = std::chrono::steady_clock::now();
+            for (int k = 0; k < S.steps; ++k) sim.step();
+            const auto t1 = std::chrono::steady_clock::now();
+            const double secs = std::chrono::duration<double>(t1 - t0).count();
+            if (th == 1) serialTime = secs;
+            const double sp = (secs > 0.0) ? serialTime / secs : 0.0;
+
+            std::cout << std::setw(7) << S.N << "    " << std::left << std::setw(18)
+                      << S.label << std::right << std::setw(7) << th
+                      << std::fixed << std::setprecision(4) << std::setw(12) << secs
+                      << std::setprecision(2) << std::setw(10) << sp << "x"
+                      << std::setw(11) << (100.0 * sp / th) << "%\n";
+
+            csvP << S.N << "," << S.key << "," << th << "," << secs << "," << sp << "\n";
+            json << (firstScale ? "      " : ",\n      ")
+                 << "{\"N\": " << S.N << ", \"scheme\": \"" << S.key
+                 << "\", \"threads\": " << th << ", \"seconds\": " << num(secs)
+                 << ", \"speedup\": " << num(sp) << "}";
+            firstScale = false;
+        }
+        std::cout << "\n";
+    }
+#ifdef _OPENMP
+    omp_set_num_threads(maxThreads);
+#endif
+    json << "\n    ]\n  }\n}\n";
     json.close();
 
     std::cout << "\nWrote study_results.json, study_spatial.csv, study_temporal.csv, study_stability.csv\n";

@@ -42,6 +42,76 @@ document.addEventListener('DOMContentLoaded', () => {
     // backend rather than assumed here.
     let simDt = 0.1;
     let simSaveInterval = 1;
+    function gridLimits() {
+        const cols = parseInt(inputs.cols.value) || 20;
+        const rows = parseInt(inputs.rows.value) || 20;
+        return { maxX: Math.max(0, cols - 1), maxY: Math.max(0, rows - 1) };
+    }
+
+    // ---- Material regions ----------------------------------------------
+    // Same (x, y) convention as heat sources: origin bottom-left. The server
+    // converts to row/col.
+    const matList = document.getElementById('mat-list');
+    const insBoxes = {
+        top: document.getElementById('insTop'),
+        bottom: document.getElementById('insBottom'),
+        left: document.getElementById('insLeft'),
+        right: document.getElementById('insRight')
+    };
+    let materials = [];
+
+    function renderMaterials() {
+        matList.innerHTML = '';
+        materials.forEach((m, i) => {
+            const row = document.createElement('div');
+            row.className = 'mat-row';
+            row.innerHTML =
+                ['x0','y0','x1','y1'].map(k =>
+                    `<input type="number" class="mat-${k}" min="0" value="${m[k]}"
+                            aria-label="Region ${i+1} ${k}">`).join('') +
+                `<input type="number" class="mat-a" step="0.01" min="0.000001" value="${m.alpha}"
+                        aria-label="Region ${i+1} diffusivity">` +
+                `<button type="button" class="src-del" title="Remove this region"
+                         aria-label="Remove region ${i+1}">&times;</button>`;
+            ['x0','y0','x1','y1'].forEach(k =>
+                row.querySelector('.mat-'+k).addEventListener('input', e => {
+                    materials[i][k] = parseInt(e.target.value);
+                }));
+            row.querySelector('.mat-a').addEventListener('input', e => {
+                materials[i].alpha = parseFloat(e.target.value);
+            });
+            row.querySelector('.src-del').addEventListener('click', () => {
+                materials.splice(i, 1); renderMaterials();
+            });
+            matList.appendChild(row);
+        });
+        if (!materials.length) {
+            const p = document.createElement('p');
+            p.className = 'src-empty';
+            p.textContent = 'Uniform \u03b1 everywhere \u2014 add a region to vary it.';
+            matList.appendChild(p);
+        }
+    }
+
+    document.getElementById('addMatBtn').addEventListener('click', () => {
+        const { maxX, maxY } = gridLimits();
+        materials.push({
+            x0: Math.round(maxX * 0.35), y0: Math.round(maxY * 0.35),
+            x1: Math.round(maxX * 0.65), y1: Math.round(maxY * 0.65),
+            alpha: 0.001
+        });
+        renderMaterials();
+    });
+
+    function validMaterials() {
+        const { maxX, maxY } = gridLimits();
+        const cl = (v, hi) => Math.min(hi, Math.max(0, Math.round(v) || 0));
+        return materials
+            .filter(m => isFinite(m.alpha) && m.alpha > 0)
+            .map(m => ({ x0: cl(m.x0,maxX), y0: cl(m.y0,maxY),
+                         x1: cl(m.x1,maxX), y1: cl(m.y1,maxY), alpha: m.alpha }));
+    }
+
     // ---- Heat sources -------------------------------------------------
     // Coordinates are (x, y) with the origin at the BOTTOM-LEFT: x runs right,
     // y runs up. The server flips y into a row index; nothing here needs to
@@ -52,12 +122,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const MAX_SOURCES = 32;
 
     let sources = [{ x: 10, y: 10, temp: 100 }];
-
-    function gridLimits() {
-        const cols = parseInt(inputs.cols.value) || 20;
-        const rows = parseInt(inputs.rows.value) || 20;
-        return { maxX: Math.max(0, cols - 1), maxY: Math.max(0, rows - 1) };
-    }
 
     function renderSources() {
         const { maxX, maxY } = gridLimits();
@@ -182,6 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     renderSources();
+    renderMaterials();
 
     // Alpha drives the time-dependent FDM solve only; the analytical steady
     // state is independent of diffusivity. Without this listener the control
@@ -233,6 +298,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // and no heat sources; it seeds itself.
         alphaParamsDiv.classList.toggle('hidden', isPde || isRD);
         if (psGroup) psGroup.classList.toggle('hidden', isPde || isRD);
+        // The analytical solution assumes uniform alpha and Dirichlet edges;
+        // reaction-diffusion has its own diffusivities and zero-flux edges.
+        const matGroup = document.getElementById('mat-group');
+        if (matGroup) matGroup.classList.toggle('hidden', isPde || isRD);
         if (boundaryGroup) boundaryGroup.classList.toggle('hidden', isRD);
         if (isPde) timeCtrl.classList.add('hidden');
 
@@ -400,6 +469,11 @@ document.addEventListener('DOMContentLoaded', () => {
             Du: parseFloat(rd.Du.value), Dv: parseFloat(rd.Dv.value),
             feed: parseFloat(rd.feed.value), kill: parseFloat(rd.kill.value),
             rdD: parseFloat(rd.D.value), rdR: parseFloat(rd.r.value),
+            materials: validMaterials(),
+            insulated: {
+                top: insBoxes.top.checked, bottom: insBoxes.bottom.checked,
+                left: insBoxes.left.checked, right: insBoxes.right.checked
+            },
         };
 
         statusText.textContent = 'Running simulation on server...';

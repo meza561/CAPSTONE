@@ -15,6 +15,7 @@ equation.
 - GCC/Clang (C++17)
 - Python 3.x
 - SQLite3
+- OpenMP *(optional — enables parallel step loops; `brew install libomp` on macOS)*
 - CMake *(optional — `start.sh` finds CLion's bundled copy, and falls back to compiling directly if no CMake is installed)*
 
 ### Quick Start
@@ -95,6 +96,29 @@ Timesteps are saved every `saveInterval` steps (matching the slider's
 resolution) and each run clears the previous one, so the database reflects only
 the current run. The interval widens automatically on large grids to bound the
 file size.
+
+## Heterogeneous Media and Insulated Edges
+
+Diffusivity can vary per cell, so the governing equation is the divergence form
+
+$$u_t = \nabla \cdot (\alpha(x,y) \nabla u)$$
+
+not $\alpha \nabla^2 u$ - the two are only equivalent when $\alpha$ is
+constant, and the second gets the flux wrong across a material interface.
+Conductivity at a cell face is the **harmonic mean** of the two adjacent cells,
+which is the standard treatment for a discontinuous coefficient: it reproduces
+series resistance exactly, where an arithmetic mean does not. The test suite
+checks a two-layer composite against the closed-form series-resistance profile
+and matches it to ~1e-9.
+
+Each edge can independently be Dirichlet (held at a temperature) or **zero-flux
+/ insulated** (Neumann). An insulated edge is not pinned: its cells are unknowns
+like any other, and the absent outward neighbour simply contributes no flux.
+With every edge insulated, total energy is conserved to machine precision -
+another exact check in the suite.
+
+Both features work with all three time schemes; the implicit ADI sweeps carry
+the variable face conductivities into their tridiagonal coefficients.
 
 ## Reaction-Diffusion
 
@@ -204,11 +228,56 @@ the four edge temperatures. Both solvers reproduce this:
 The analytical solver matches to machine precision; FDM converges to within
 1e-3 of it, which cross-validates the two independent methods.
 
+## Testing
+
+```bash
+./run_tests.sh
+```
+
+36 assertions covering every value theory fixes independently of the code:
+exact analytical temperatures, the mean-value property, rotational symmetry,
+the discrete maximum principle, spatial and temporal convergence orders, the
+F = 1/4 stability threshold, unconditional stability of the implicit schemes at
+F = 500, series resistance through a composite slab, energy conservation in a
+sealed domain, the Fisher-KPP wave speed, and Gray-Scott pattern formation with
+a dead-regime negative control. Exits non-zero on failure.
+
+It runs in CI on every push (`.github/workflows/ci.yml`). This is cheap
+insurance: two silent correctness bugs got through during development - an
+analytical solver that was wrong for every configuration except a single hot
+edge, and a convergence test that could never fire when a heat source was
+present. Both would have been caught by these assertions.
+
+## Parallel Scaling
+
+The step loops are parallelised with OpenMP: rows of the explicit update write
+only their own row, and each ADI grid line is an independent tridiagonal solve,
+so neither needs synchronisation. Serial and parallel runs produce
+**bit-identical** output.
+
+OpenMP is optional - the pragmas compile away without it, which matters because
+Apple's clang does not ship it. To enable it on macOS:
+
+```bash
+brew install libomp
+```
+
+Measured on 2 cores (`./run_study.sh` reports this for your own machine):
+
+| Grid | Scheme | Threads | Speedup | Efficiency |
+|---|---|---|---|---|
+| 256 | explicit | 2 | 1.99x | 99% |
+| 256 | Crank-Nicolson | 2 | 1.88x | 94% |
+| 512 | explicit | 2 | 1.90x | 95% |
+| 512 | Crank-Nicolson | 2 | 1.86x | 93% |
+
 ## API Endpoints
 - `GET /`: Serves the frontend.
 - `POST /run`: Executes a simulation.
   - **Payload**: `{ "rows": 20, "cols": 20, "top": 100, "bottom": 0, "left": 0, "right": 0, "mode": "fdm", "alpha": 0.01 }`
     - `mode`: `fdm` (explicit), `be` (backward Euler), `cn` (Crank-Nicolson), `pde` (analytical), `fisher`, `gray-scott`
+    - `insulated`: `{"top": false, "bottom": true, ...}` - zero-flux edges
+    - `materials`: `[{"x0": 0, "y0": 28, "x1": 60, "y1": 32, "alpha": 0.0005}]` - diffusivity rectangles in bottom-left coordinates
     - reaction-diffusion: `rdSteps`, plus `rdD`/`rdR` for Fisher-KPP or `Du`/`Dv`/`feed`/`kill` for Gray-Scott
     - `F`: diffusion number, implicit schemes only; explicit is pinned at 0.2
     - optional heat sources: `"hasPointSource": true, "sources": [{"x": 50, "y": 50, "temp": 1000}, {"x": 20, "y": 80, "temp": 500}]`
@@ -242,6 +311,9 @@ discrete maximum principle (no interior extremum).
 ## Project Structure
 - `simulation.hpp`: the heat solver (explicit, backward Euler, Crank-Nicolson, analytical), shared by the app and the study.
 - `reaction.hpp`: reaction-diffusion (Fisher-KPP, Gray-Scott).
+- `tests.cpp`: physics regression tests.
+- `run_tests.sh`: builds and runs them.
+- `.github/workflows/ci.yml`: runs the tests on every push.
 - `main.cpp`: CLI and JSON export for the web application.
 - `database.cpp` / `database.hpp`: SQLite persistence for timesteps.
 - `study.cpp`: convergence and stability study.

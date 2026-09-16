@@ -201,6 +201,29 @@ def run_simulation():
                     str(steps)])
         else:
             cmd.extend(source_args)
+
+            # Insulated (zero-flux) edges.
+            ins = data.get('insulated') or {}
+            flags = ''.join(c for c, key in
+                            (('t', 'top'), ('b', 'bottom'), ('l', 'left'), ('r', 'right'))
+                            if bool(ins.get(key)))
+            if flags:
+                cmd.append('--insulate=' + flags)
+
+            # Material regions, given as (x, y) rectangles in UI coordinates
+            # with the origin bottom-left; converted to row/col here, the same
+            # place the heat-source flip happens.
+            for mat in (data.get('materials') or [])[:MAX_SOURCES]:
+                if not isinstance(mat, dict):
+                    continue
+                x0 = _clamp(mat.get('x0', 0), 0, n_cols - 1, 0)
+                x1 = _clamp(mat.get('x1', 0), 0, n_cols - 1, 0)
+                y0 = _clamp(mat.get('y0', 0), 0, n_rows - 1, 0)
+                y1 = _clamp(mat.get('y1', 0), 0, n_rows - 1, 0)
+                av = _clamp_float(mat.get('alpha', 0.01), 1e-6, 1e3, 0.01)
+                r0 = (n_rows - 1) - max(y0, y1)
+                r1 = (n_rows - 1) - min(y0, y1)
+                cmd.append('--material=%d,%d,%d,%d,%g' % (r0, min(x0, x1), r1, max(x0, x1), av))
             
         try:
             with SIM_LOCK:

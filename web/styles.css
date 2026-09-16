@@ -679,3 +679,34 @@ th {
 }
 
 .rd-grid input { width: 100%; box-sizing: border-box; }
+
+/* Material regions */
+.mat-head, .mat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr) 1.2fr 30px;
+    gap: 6px;
+    align-items: center;
+}
+
+.mat-head span {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.mat-row { margin-bottom: 8px; }
+.mat-row input { width: 100%; box-sizing: border-box; padding: 8px 6px; font-size: 0.85rem; }
+
+.ins-toggle {
+    display: flex !important;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.72rem !important;
+    color: var(--text-muted) !important;
+    font-weight: 500 !important;
+    margin-top: 4px !important;
+    cursor: pointer;
+}
+
+.ins-toggle input[type="checkbox"] { width: auto; margin: 0; }

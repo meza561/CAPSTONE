@@ -6,6 +6,12 @@
 #include <algorithm>
 #include <utility>
 
+// Optional: the pragmas below are ignored when OpenMP is unavailable, which is
+// the default for Apple's clang. Nothing here depends on it being present.
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 /**
  * 2D Heat Equation Simulation.
  * Supports both Finite Difference Method (FDM) and Analytical PDE solutions.
@@ -43,6 +49,66 @@ public:
     void setMethod(Method m) { method = m; }
     Method getMethod() const { return method; }
 
+    /**
+     * Per-cell diffusivity. With a non-uniform alpha the governing equation is
+     * the divergence form
+     *
+     *     du/dt = div( alpha(x,y) grad u )
+     *
+     * not alpha * lap(u): the latter is only equivalent when alpha is
+     * constant, and gets the flux wrong across a material interface.
+     * Conductivity at a face is the HARMONIC mean of the two adjacent cells,
+     * which is the standard treatment for a discontinuous coefficient - it
+     * reproduces series resistance exactly, where an arithmetic mean does not.
+     */
+    void setAlphaField(const std::vector<std::vector<double>>& f) {
+        if (static_cast<int>(f.size()) != rows) return;
+        alphaField = f;
+        heterogeneous = true;
+    }
+
+    void setAlphaAt(int i, int j, double a) {
+        if (i < 0 || i >= rows || j < 0 || j >= cols || a <= 0.0) return;
+        ensureAlphaField();
+        alphaField[i][j] = a;
+        heterogeneous = true;
+    }
+
+    /** Fill an axis-aligned rectangle (inclusive) with a diffusivity. */
+    void setAlphaRegion(int i0, int j0, int i1, int j1, double a) {
+        if (a <= 0.0) return;
+        ensureAlphaField();
+        for (int i = std::max(0, std::min(i0, i1)); i <= std::min(rows - 1, std::max(i0, i1)); ++i)
+            for (int j = std::max(0, std::min(j0, j1)); j <= std::min(cols - 1, std::max(j0, j1)); ++j)
+                alphaField[i][j] = a;
+        heterogeneous = true;
+    }
+
+    /**
+     * Zero-flux (insulated) edges. An insulated edge is not pinned: its cells
+     * are unknowns like any other, and the missing outward neighbour simply
+     * contributes no flux. A Dirichlet edge stays pinned at whatever
+     * setBoundary wrote there.
+     */
+    void setInsulatedEdges(bool top, bool bottom, bool left, bool right) {
+        insTop = top; insBottom = bottom; insLeft = left; insRight = right;
+        pinnedDirty = true;
+    }
+
+    bool anyInsulated() const { return insTop || insBottom || insLeft || insRight; }
+
+    /** Sum over all cells - conserved exactly when every edge is insulated. */
+    double totalEnergy() const {
+        double sum = 0.0;
+        for (const auto& row : grid)
+            for (double vv : row) sum += vv;
+        return sum;
+    }
+
+    /** Set a cell's value. On an insulated edge this is an initial condition
+     *  rather than a boundary condition, since such cells are not pinned. */
+    void setInitial(int r, int c, double value) { setBoundary(r, c, value); }
+
     void setBoundary(int r, int c, double temp) {
         if (r >= 0 && r < rows && c >= 0 && c < cols) {
             grid[r][c] = temp;
@@ -69,27 +135,32 @@ public:
     }
 
     double stepExplicit() {
+        if (pinnedDirty) rebuildPinned();
+        const double coef = dt / (dx * dx);
         double maxDiff = 0.0;
-        double factor = alpha * dt / (dx * dx);
 
-        for (int i = 1; i < rows - 1; ++i) {
-            for (int j = 1; j < cols - 1; ++j) {
-                nextGrid[i][j] = grid[i][j] + factor * (
-                    grid[i+1][j] + grid[i-1][j] + 
-                    grid[i][j+1] + grid[i][j-1] - 4 * grid[i][j]
-                );
-                maxDiff = std::max(maxDiff, std::abs(nextGrid[i][j] - grid[i][j]));
+        // Every cell is visited, not just the interior: an insulated edge cell
+        // is an unknown too. A neighbour outside the grid contributes no flux,
+        // which IS the zero-flux condition - nothing special-cased.
+        //
+        // Rows are independent: each writes only its own row of nextGrid and
+        // reads only grid, so this parallelises without any synchronisation.
+        #ifdef _OPENMP
+        #pragma omp parallel for schedule(static) reduction(max:maxDiff)
+        #endif
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                if (pinned[i][j]) { nextGrid[i][j] = grid[i][j]; continue; }
+                const double c = grid[i][j];
+                double flux = 0.0;
+                if (i > 0)        flux += faceAlpha(i, j, i - 1, j) * (grid[i - 1][j] - c);
+                if (i < rows - 1) flux += faceAlpha(i, j, i + 1, j) * (grid[i + 1][j] - c);
+                if (j > 0)        flux += faceAlpha(i, j, i, j - 1) * (grid[i][j - 1] - c);
+                if (j < cols - 1) flux += faceAlpha(i, j, i, j + 1) * (grid[i][j + 1] - c);
+                nextGrid[i][j] = c + coef * flux;
+                maxDiff = std::max(maxDiff, std::abs(nextGrid[i][j] - c));
             }
         }
-
-        // Enforce Point Sources (Dirichlet)
-        for (const auto& ps : pointSources) {
-            nextGrid[ps.r][ps.c] = ps.temp;
-        }
-
-        // O(1) buffer swap. The interior of nextGrid is fully rewritten each
-        // step and both buffers hold identical boundary values, so swapping is
-        // equivalent to the old deep copy but without reallocating rows*cols.
         std::swap(grid, nextGrid);
         return maxDiff;
     }
@@ -168,10 +239,26 @@ private:
     // an implicit solve.
     void rebuildPinned() {
         pinned.assign(rows, std::vector<char>(cols, 0));
-        for (int j = 0; j < cols; ++j) { pinned[0][j] = 1; pinned[rows - 1][j] = 1; }
-        for (int i = 0; i < rows; ++i) { pinned[i][0] = 1; pinned[i][cols - 1] = 1; }
+        if (!insTop)    for (int j = 0; j < cols; ++j) pinned[0][j] = 1;
+        if (!insBottom) for (int j = 0; j < cols; ++j) pinned[rows - 1][j] = 1;
+        if (!insLeft)   for (int i = 0; i < rows; ++i) pinned[i][0] = 1;
+        if (!insRight)  for (int i = 0; i < rows; ++i) pinned[i][cols - 1] = 1;
         for (const auto& ps : pointSources) pinned[ps.r][ps.c] = 1;
         pinnedDirty = false;
+    }
+
+    void ensureAlphaField() {
+        if (alphaField.empty())
+            alphaField.assign(rows, std::vector<double>(cols, alpha));
+    }
+
+    /** Harmonic mean of the two cell diffusivities: the face conductivity. */
+    double faceAlpha(int i1, int j1, int i2, int j2) const {
+        if (!heterogeneous) return alpha;
+        const double a = alphaField[i1][j1];
+        const double b = alphaField[i2][j2];
+        const double sum = a + b;
+        return (sum > 0.0) ? (2.0 * a * b / sum) : 0.0;
     }
 
     /** Thomas algorithm: O(n) solve of a tridiagonal system. */
@@ -208,58 +295,103 @@ private:
     double stepADI(bool crankNicolson) {
         if (pinnedDirty) rebuildPinned();
 
-        const double r  = alpha * dt / (dx * dx);
-        const double rc = crankNicolson ? 0.5 * r : r;
-        const double diag = 1.0 + 2.0 * rc;
+        // alpha now lives in the face conductivities rather than in r, so the
+        // tridiagonal coefficients vary from cell to cell.
+        const double rr = dt / (dx * dx);
+        const double rc = crankNicolson ? 0.5 * rr : rr;
 
         adiMid.assign(rows, std::vector<double>(cols, 0.0));
         adiOut.assign(rows, std::vector<double>(cols, 0.0));
 
-        const int nmax = std::max(rows, cols);
-        std::vector<double> a(nmax), b(nmax), c(nmax), d(nmax), x(nmax), cp(nmax), dp(nmax);
+        // Each grid line is an independent tridiagonal system, so the sweeps
+        // parallelise cleanly. The Thomas scratch has to be per-thread, hence
+        // the explicit parallel region rather than a bare parallel-for.
+        #ifdef _OPENMP
+        #pragma omp parallel
+        #endif
+        {
+        std::vector<double> a(cols), b(cols), c(cols), d(cols), x(cols), cp(cols), dp(cols);
 
         // --- sweep 1: implicit along x, one system per row ---
-        a.resize(cols); b.resize(cols); c.resize(cols);
-        d.resize(cols); x.resize(cols); cp.resize(cols); dp.resize(cols);
+        #ifdef _OPENMP
+        #pragma omp for schedule(static)
+        #endif
         for (int i = 0; i < rows; ++i) {
             for (int j = 0; j < cols; ++j) {
                 if (pinned[i][j]) {
                     a[j] = 0.0; b[j] = 1.0; c[j] = 0.0;
                     d[j] = grid[i][j];
-                } else {
-                    a[j] = -rc; b[j] = diag; c[j] = -rc;
-                    d[j] = grid[i][j]
-                         + rc * (grid[i - 1][j] - 2.0 * grid[i][j] + grid[i + 1][j]);
+                    continue;
                 }
+                const double aW = (j > 0)        ? faceAlpha(i, j, i, j - 1) : 0.0;
+                const double aE = (j < cols - 1) ? faceAlpha(i, j, i, j + 1) : 0.0;
+                const double aN = (i > 0)        ? faceAlpha(i, j, i - 1, j) : 0.0;
+                const double aS = (i < rows - 1) ? faceAlpha(i, j, i + 1, j) : 0.0;
+
+                a[j] = -rc * aW;
+                b[j] = 1.0 + rc * (aW + aE);
+                c[j] = -rc * aE;
+
+                double yFlux = 0.0;
+                if (i > 0)        yFlux += aN * (grid[i - 1][j] - grid[i][j]);
+                if (i < rows - 1) yFlux += aS * (grid[i + 1][j] - grid[i][j]);
+                d[j] = grid[i][j] + rc * yFlux;
             }
             thomas(a, b, c, d, x, cp, dp);
             for (int j = 0; j < cols; ++j) adiMid[i][j] = x[j];
         }
 
+        } // end parallel region for sweep 1
+
+        #ifdef _OPENMP
+        #pragma omp parallel
+        #endif
+        {
+        std::vector<double> a(rows), b(rows), c(rows), d(rows), x(rows), cp(rows), dp(rows);
+
         // --- sweep 2: implicit along y, one system per column ---
-        a.resize(rows); b.resize(rows); c.resize(rows);
-        d.resize(rows); x.resize(rows); cp.resize(rows); dp.resize(rows);
+        #ifdef _OPENMP
+        #pragma omp for schedule(static)
+        #endif
         for (int j = 0; j < cols; ++j) {
             for (int i = 0; i < rows; ++i) {
                 if (pinned[i][j]) {
                     a[i] = 0.0; b[i] = 1.0; c[i] = 0.0;
                     d[i] = grid[i][j];
+                    continue;
+                }
+                const double aW = (j > 0)        ? faceAlpha(i, j, i, j - 1) : 0.0;
+                const double aE = (j < cols - 1) ? faceAlpha(i, j, i, j + 1) : 0.0;
+                const double aN = (i > 0)        ? faceAlpha(i, j, i - 1, j) : 0.0;
+                const double aS = (i < rows - 1) ? faceAlpha(i, j, i + 1, j) : 0.0;
+
+                a[i] = -rc * aN;
+                b[i] = 1.0 + rc * (aN + aS);
+                c[i] = -rc * aS;
+
+                if (crankNicolson) {
+                    double xFlux = 0.0;
+                    if (j > 0)        xFlux += aW * (adiMid[i][j - 1] - adiMid[i][j]);
+                    if (j < cols - 1) xFlux += aE * (adiMid[i][j + 1] - adiMid[i][j]);
+                    d[i] = adiMid[i][j] + rc * xFlux;
                 } else {
-                    a[i] = -rc; b[i] = diag; c[i] = -rc;
-                    d[i] = crankNicolson
-                        ? adiMid[i][j] + rc * (adiMid[i][j - 1] - 2.0 * adiMid[i][j]
-                                               + adiMid[i][j + 1])
-                        : adiMid[i][j] - rc * (grid[i - 1][j] - 2.0 * grid[i][j]
-                                               + grid[i + 1][j]);
+                    double yFlux = 0.0;
+                    if (i > 0)        yFlux += aN * (grid[i - 1][j] - grid[i][j]);
+                    if (i < rows - 1) yFlux += aS * (grid[i + 1][j] - grid[i][j]);
+                    d[i] = adiMid[i][j] - rc * yFlux;
                 }
             }
             thomas(a, b, c, d, x, cp, dp);
             for (int i = 0; i < rows; ++i) adiOut[i][j] = x[i];
         }
+        } // end parallel region for sweep 2
 
         double maxDiff = 0.0;
-        for (int i = 1; i < rows - 1; ++i) {
-            for (int j = 1; j < cols - 1; ++j) {
+        #ifdef _OPENMP
+        #pragma omp parallel for schedule(static) reduction(max:maxDiff)
+        #endif
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
                 maxDiff = std::max(maxDiff, std::abs(adiOut[i][j] - grid[i][j]));
             }
         }
@@ -270,6 +402,9 @@ private:
     int rows, cols;
     double alpha, dx, dt;
     Method method = Method::Explicit;
+    bool heterogeneous = false;
+    bool insTop = false, insBottom = false, insLeft = false, insRight = false;
+    std::vector<std::vector<double>> alphaField;
     std::vector<std::vector<double>> grid;
     std::vector<std::vector<double>> nextGrid;
     std::vector<std::vector<double>> adiMid;

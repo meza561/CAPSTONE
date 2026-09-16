@@ -74,11 +74,23 @@ public:
      * until perturbed. Seed blobs of v and add a little noise so the
      * instability has something asymmetric to amplify.
      */
-    void seedGrayScott(unsigned int seed = 1u, int blobs = 3, double noise = 0.02) {
+    /**
+     * @param blobs  number of seed patches, or <= 0 to scale with the domain.
+     *
+     * Scaling matters: some regimes (spots in particular) sit near the edge of
+     * the pattern-forming region, and a seed that perturbs too small a
+     * fraction of the domain decays back to the trivial state before it can
+     * establish. With a fixed three blobs, a 96x96 spots run died outright for
+     * half the random seeds while a 128x128 one always patterned.
+     */
+    void seedGrayScott(unsigned int seed = 1u, int blobs = 0, double noise = 0.02) {
         for (auto& row : u) std::fill(row.begin(), row.end(), 1.0);
         for (auto& row : v) std::fill(row.begin(), row.end(), 0.0);
 
         rng = seed ? seed : 1u;
+        if (blobs <= 0) {
+            blobs = std::max(3, (rows * cols) / 1500);
+        }
         const int half = std::max(2, std::min(rows, cols) / 16);
 
         for (int b = 0; b < blobs; ++b) {

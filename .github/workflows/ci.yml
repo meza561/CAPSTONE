@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  physics-tests:
+    name: Physics regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SQLite headers
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run physics tests
+        run: ./build/heat_tests
+
+      - name: Check the app binary runs
+        run: |
+          ./build/heat_sim 21 21 100 0 0 0 fdm 0.01 0.2
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open('latest_heatmap.json'))
+          centre = d['data'][10][10]
+          # exact steady-state centre for one hot edge on a square plate
+          assert abs(centre - 25.0) < 0.05, f'centre {centre} is not ~25'
+          print(f'binary smoke test OK (centre = {centre:.4f})')
+          PY

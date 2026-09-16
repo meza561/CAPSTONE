@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 #include <algorithm>
+#include <sstream>
 #include "database.hpp"
 #include "simulation.hpp"
 #include "reaction.hpp"
@@ -35,7 +36,58 @@ void exportToJSON(const std::string& filename, int step, int rows, int cols,
     file << "\n  ]\n}";
 }
 
-int main(int argc, char* argv[]) {
+namespace {
+
+struct MaterialRegion { int r0, c0, r1, c1; double alpha; };
+
+struct Options {
+    bool insTop = false, insBottom = false, insLeft = false, insRight = false;
+    std::vector<MaterialRegion> materials;
+};
+
+/**
+ * Pull `--key=value` options out of argv and return the remaining positional
+ * arguments. Keeping these flag-style avoids adding more positional slots to
+ * an already long fixed layout, and leaves the existing ordering untouched.
+ *
+ *   --insulate=tblr                      edges held at zero flux
+ *   --material=r0,c0,r1,c1,alpha         repeatable; a rectangle of diffusivity
+ */
+std::vector<std::string> extractOptions(int argc, char* argv[], Options& opt) {
+    std::vector<std::string> positional;
+    for (int i = 0; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a.rfind("--insulate=", 0) == 0) {
+            const std::string e = a.substr(11);
+            opt.insTop    = e.find('t') != std::string::npos;
+            opt.insBottom = e.find('b') != std::string::npos;
+            opt.insLeft   = e.find('l') != std::string::npos;
+            opt.insRight  = e.find('r') != std::string::npos;
+        } else if (a.rfind("--material=", 0) == 0) {
+            std::string body = a.substr(11);
+            for (char& ch : body) if (ch == ',') ch = ' ';
+            std::istringstream is(body);
+            MaterialRegion mr{};
+            if (is >> mr.r0 >> mr.c0 >> mr.r1 >> mr.c1 >> mr.alpha && mr.alpha > 0.0) {
+                opt.materials.push_back(mr);
+            }
+        } else {
+            positional.push_back(a);
+        }
+    }
+    return positional;
+}
+
+} // namespace
+
+int main(int argcRaw, char* argvRaw[]) {
+    Options opt;
+    std::vector<std::string> args = extractOptions(argcRaw, argvRaw, opt);
+    const int argc = static_cast<int>(args.size());
+    std::vector<char*> argvStore;
+    for (auto& s : args) argvStore.push_back(const_cast<char*>(s.c_str()));
+    char** argv = argvStore.data();
+
     int ROWS = 20;
     int COLS = 20;
     double ALPHA = 0.01;
@@ -152,6 +204,18 @@ int main(int argc, char* argv[]) {
 
     HeatSimulation sim(ROWS, COLS, ALPHA, DX, DT);
     sim.setMethod(method);
+    sim.setInsulatedEdges(opt.insTop, opt.insBottom, opt.insLeft, opt.insRight);
+    for (const auto& mr : opt.materials) {
+        sim.setAlphaRegion(mr.r0, mr.c0, mr.r1, mr.c1, mr.alpha);
+    }
+    if (!opt.materials.empty()) {
+        std::cout << "Material regions: " << opt.materials.size() << "\n";
+    }
+    if (sim.anyInsulated()) {
+        std::cout << "Insulated edges:"
+                  << (opt.insTop ? " top" : "") << (opt.insBottom ? " bottom" : "")
+                  << (opt.insLeft ? " left" : "") << (opt.insRight ? " right" : "") << "\n";
+    }
     HeatDatabase db("heat_sim.db");
 
     if (!db.init()) return 1;
@@ -177,7 +241,11 @@ int main(int argc, char* argv[]) {
             rd.setGrayScott(Du, Dv, fd, kl);
             rd.setSpacing(1.0);          // the normalisation Gray-Scott is quoted in
             rdDt = 1.0;
-            rd.seedGrayScott(11u, 4, 0.02);
+            rd.seedGrayScott(11u, 0, 0.02);   // 0 = scale seeds with the domain
+            if (std::min(ROWS, COLS) < 96) {
+                std::cout << "Note: grids below ~96 cells are small relative to the "
+                             "pattern wavelength; some regimes may not establish.\n";
+            }
             rdName = "Gray-Scott (Turing)";
             std::cout << "Gray-Scott: Du=" << Du << " Dv=" << Dv
                       << " feed=" << fd << " kill=" << kl << "\n";
@@ -243,10 +311,12 @@ int main(int argc, char* argv[]) {
         exportToJSON("latest_heatmap.json", 0, ROWS, COLS, sim.getGrid(), DT, 1,
                      "analytical", F_TARGET);
     } else {
-        for (int j = 0; j < COLS; ++j) sim.setBoundary(0, j, topTemp);
-        for (int j = 0; j < COLS; ++j) sim.setBoundary(ROWS - 1, j, bottomTemp);
-        for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, 0, leftTemp);
-        for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, COLS - 1, rightTemp);
+        // An insulated edge carries no imposed temperature - writing one would
+        // just be an initial condition that immediately diffuses away.
+        if (!opt.insTop)    for (int j = 0; j < COLS; ++j) sim.setBoundary(0, j, topTemp);
+        if (!opt.insBottom) for (int j = 0; j < COLS; ++j) sim.setBoundary(ROWS - 1, j, bottomTemp);
+        if (!opt.insLeft)   for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, 0, leftTemp);
+        if (!opt.insRight)  for (int i = 0; i < ROWS; ++i) sim.setBoundary(i, COLS - 1, rightTemp);
 
         for (const auto& s : sources) {
             sim.addPointSource(s.r, s.c, s.t);

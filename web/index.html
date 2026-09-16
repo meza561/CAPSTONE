@@ -102,20 +102,51 @@
                             <div class="temp-field">
                                 <label for="top">Top</label>
                                 <input type="number" id="top" value="100">
+                                                            <label class="ins-toggle">
+                                    <input type="checkbox" id="insTop"> insulated
+                                </label>
                             </div>
                             <div class="temp-field">
                                 <label for="bottom">Bottom</label>
                                 <input type="number" id="bottom" value="0">
+                                                            <label class="ins-toggle">
+                                    <input type="checkbox" id="insBottom"> insulated
+                                </label>
                             </div>
                             <div class="temp-field">
                                 <label for="left">Left</label>
                                 <input type="number" id="left" value="0">
+                                                            <label class="ins-toggle">
+                                    <input type="checkbox" id="insLeft"> insulated
+                                </label>
                             </div>
                             <div class="temp-field">
                                 <label for="right">Right</label>
                                 <input type="number" id="right" value="0">
+                                                            <label class="ins-toggle">
+                                    <input type="checkbox" id="insRight"> insulated
+                                </label>
                             </div>
                         </div>
+                    </div>
+
+                    <div class="input-group" id="mat-group">
+                        <label>Material Regions</label>
+                        <p class="ps-hint">
+                            Rectangles of different diffusivity &alpha; &mdash; an insulating
+                            inclusion, or a composite plate. Coordinates share the
+                            heat-source convention: <strong>x</strong> right,
+                            <strong>y</strong> up from the bottom-left. Later regions
+                            override earlier ones.
+                        </p>
+                        <div class="mat-head">
+                            <span>x0</span><span>y0</span><span>x1</span><span>y1</span>
+                            <span>&alpha;</span><span></span>
+                        </div>
+                        <div id="mat-list"></div>
+                        <button type="button" id="addMatBtn" class="ghost-btn src-add">
+                            + Add material region
+                        </button>
                     </div>
 
                     <div class="input-group" id="ps-group">
