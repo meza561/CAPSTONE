@@ -235,18 +235,29 @@ input[type="number"]:focus {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    min-height: 600px;
+    justify-content: flex-start;
+}
+
+/* The parameter column is much taller than the plate. Pinning the
+   visualisation keeps the field, the key and the timeline together on screen
+   no matter how far down the controls are scrolled. */
+@media (min-width: 901px) {
+    .visualization-panel {
+        position: sticky;
+        top: 20px;
+    }
 }
 
 .canvas-stage {
     position: relative;
-    width: 500px;
-    height: 500px;
+    /* Square, but never so tall that the key and timeline below it are pushed
+       off a short screen. */
+    width: min(500px, calc(100vh - 330px));
+    height: min(500px, calc(100vh - 330px));
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 30px;
+    margin-bottom: 22px;
     background: #000;
     border-radius: 8px;
     overflow: hidden;
@@ -254,32 +265,165 @@ input[type="number"]:focus {
 }
 
 canvas {
-    width: 500px;
-    height: 500px;
+    width: 100%;
+    height: 100%;
+    /* A 20x300 grid is not square. `contain` letterboxes it inside the stage
+       instead of stretching it; the hover readout does the same arithmetic. */
+    object-fit: contain;
     image-rendering: pixelated;
 }
 
 .legend-container {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 16px;
+    width: 100%;
+    max-width: 500px;
     font-size: 0.9rem;
     font-weight: 600;
     color: var(--text-main);
 }
 
+/* Filled in by script.js from the active colour map, so the key always shows
+   the colours actually painted on the plate. */
 .gradient-bar {
-    width: 240px;
+    /* Shrinks on a narrow screen instead of pushing the key off the side. */
+    flex: 1 1 120px;
+    max-width: 240px;
     height: 12px;
-    background: linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000);
     border-radius: 6px;
     border: 1px solid var(--border-color);
 }
 
 .legend-label {
-    min-width: 45px;
+    flex: 0 0 auto;
+    min-width: 62px;
     text-align: center;
+    font-variant-numeric: tabular-nums;
 }
+
+.legend-options {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    margin-top: 12px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.mini-select {
+    padding: 5px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    background: #fafafa;
+    font-size: 0.8rem;
+    color: var(--text-main);
+}
+
+.scale-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.scale-toggle input { margin: 0; }
+
+/* Visually hidden, still read by screen readers. */
+.sr-inline {
+    position: absolute;
+    width: 1px; height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* ---------- Timeline ---------- */
+
+.time-ctrl {
+    width: 100%;
+    max-width: 500px;
+    margin-top: 20px;
+}
+
+.time-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.play-btn {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    border: none;
+    border-radius: 50%;
+    background: var(--primary-emerald);
+    color: #fff;
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+}
+
+.play-btn:hover { background: var(--primary-emerald-hover); }
+.play-btn:active { transform: scale(0.95); }
+
+.time-readout {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-main);
+    font-variant-numeric: tabular-nums;
+    margin: 0 !important;
+}
+
+.frame-count {
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-left: 8px;
+}
+
+.slider {
+    width: 100%;
+    accent-color: var(--primary-emerald);
+    cursor: pointer;
+}
+
+.slider-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+}
+
+.status-display.is-error {
+    background: #fbe9e7;
+    color: #b3261e;
+    font-weight: 600;
+}
+
+/* Sticks to the bottom of the viewport while the (very tall) parameter column
+   is on screen, then settles into place at its end. The negative offset and
+   the padding cancel the panel's own 32px bottom padding so nothing shows
+   through underneath it. */
+.run-dock {
+    position: sticky;
+    bottom: -32px;
+    margin: 4px -32px -32px -32px;
+    padding: 12px 32px 32px 32px;
+    background: var(--panel-bg);
+    border-top: 1px solid var(--bg-champagne);
+    border-radius: 0 0 var(--radius) var(--radius);
+}
+
+.run-dock .primary-btn { margin-top: 0; }
+.run-dock .status-display { margin-top: 12px; margin-bottom: 0; }
 
 .history-panel {
     width: 100%;
@@ -331,15 +475,19 @@ th {
     .main-layout {
         grid-template-columns: 1fr;
     }
-    
+
+    /* One column, so the visualisation panel comes first - otherwise the
+       plate sits below a screen and a half of inputs. */
+    .visualization-panel { order: -1; }
+
+    /* Sized against the panel, not the viewport: 90vw ignored the panel's own
+       padding, so the stage was 64px wider than the column that holds it and
+       pushed the whole page sideways. */
     .canvas-stage {
-        width: 90vw;
-        height: 90vw;
-    }
-    
-    canvas {
-        width: 90vw;
-        height: 90vw;
+        width: 100%;
+        max-width: 500px;
+        height: auto;
+        aspect-ratio: 1 / 1;
     }
 }
 

@@ -34,14 +34,112 @@ document.addEventListener('DOMContentLoaded', () => {
     const timeCtrl     = document.getElementById('time-evolution-ctrl');
     const timeSlider   = document.getElementById('timeSlider');
     const timeVal      = document.getElementById('timeVal');
+    const frameVal     = document.getElementById('frameVal');
+    const playBtn      = document.getElementById('playBtn');
     const sliderMinLabel = document.getElementById('sliderMinLabel');
     const sliderMaxLabel = document.getElementById('sliderMaxLabel');
+    const gradientBar  = document.getElementById('gradientBar');
+    const colorMapSel  = document.getElementById('colorMap');
+    const autoScaleBox = document.getElementById('autoScale');
 
     // Time mapping for the current run. dt is chosen by the solver from the
     // stability limit for the requested alpha, so it is reported by the
     // backend rather than assumed here.
     let simDt = 0.1;
     let simSaveInterval = 1;
+
+    // Which steps this run actually stored. The slider indexes this list
+    // rather than a rounded number of seconds: whole seconds made the slider
+    // useless for fast runs (a whole run of 0.5 s collapsed to two positions)
+    // and meant the displayed time never quite matched the frame shown.
+    let frameSteps = [];
+    // Field units for the current run. Reaction-diffusion returns species
+    // concentrations, not temperatures, so labelling them degrees Celsius is
+    // simply wrong.
+    let fieldUnit = '°C';
+    let fieldName = 'Temperature';
+    // Fixed colour range for the run. Rescaling every frame to its own
+    // min/max made a cooling plate look identical at every instant, which is
+    // the opposite of what the timeline is for.
+    let scaleRange = null;
+    let timeSuffix = ' s';
+
+    // ---- Colour maps ---------------------------------------------------
+    // The plate, the key and the tooltip all read colour from here, so the
+    // key cannot drift from what is painted. It previously did: the CSS
+    // gradient ran blue-cyan-green-yellow-red while the canvas painted
+    // blue-teal-green-olive-red, so the key mis-stated the middle of its own
+    // scale.
+    const COLOR_MAPS = {
+        // The original map: blue (cold) through green to red (hot).
+        thermal: t => [
+            t > 0.5 ? (t - 0.5) * 2 * 255 : 0,
+            (1 - Math.abs(t - 0.5) * 2) * 255,
+            t < 0.5 ? (0.5 - t) * 2 * 255 : 0
+        ],
+        // Incandescence: black through red and orange to white. Brightness
+        // increases with the value, so it reads correctly in greyscale and
+        // for colour-blind viewers, and it has no bright band in the middle
+        // to be mistaken for a feature of the solution.
+        blackbody: t => [
+            Math.min(1, t * 3) * 255,
+            Math.min(1, Math.max(0, t * 3 - 1)) * 255,
+            Math.min(1, Math.max(0, t * 3 - 2)) * 255
+        ],
+        gray: t => [t * 255, t * 255, t * 255]
+    };
+    let colorMap = COLOR_MAPS.thermal;
+
+    function heatColor(v) {
+        const t = v < 0 ? 0 : (v > 1 ? 1 : v);
+        const c = colorMap(t);
+        return [Math.round(c[0]), Math.round(c[1]), Math.round(c[2])];
+    }
+
+    function renderLegendBar() {
+        const stops = [];
+        for (let i = 0; i <= 20; i++) {
+            const [r, g, b] = heatColor(i / 20);
+            stops.push(`rgb(${r},${g},${b}) ${i * 5}%`);
+        }
+        gradientBar.style.background =
+            `linear-gradient(to right, ${stops.join(', ')})`;
+    }
+
+    colorMapSel.addEventListener('change', () => {
+        colorMap = COLOR_MAPS[colorMapSel.value] || COLOR_MAPS.thermal;
+        renderLegendBar();
+        if (currentField) drawHeatmap(currentField);
+    });
+    autoScaleBox.addEventListener('change', () => {
+        if (currentField) drawHeatmap(currentField);
+    });
+    renderLegendBar();
+
+    // Precision follows the span of the current scale, not the magnitude of
+    // each value: temperatures run to hundreds, reaction-diffusion
+    // concentrations to fractions of one. Taking it per value printed the two
+    // ends of one scale at different precisions ("0.000" beside "100.0").
+    let valueDigits = 1;
+
+    function fmtValue(v, extra) {
+        if (!isFinite(v)) return '--';
+        return v.toFixed(valueDigits + (extra || 0)) + fieldUnit;
+    }
+
+    function setValuePrecision(span) {
+        valueDigits = span >= 10 ? 1 : (span >= 1 ? 2 : 3);
+    }
+
+    function fmtTime(t) {
+        if (!isFinite(t)) return '0';
+        const a = Math.abs(t);
+        if (a === 0) return '0' + timeSuffix;
+        if (a < 0.01) return t.toExponential(2) + timeSuffix;
+        if (a < 1) return t.toFixed(4) + timeSuffix;
+        if (a < 1000) return t.toFixed(2) + timeSuffix;
+        return Math.round(t).toLocaleString() + timeSuffix;
+    }
     function gridLimits() {
         const cols = parseInt(inputs.cols.value) || 20;
         const rows = parseInt(inputs.rows.value) || 20;
@@ -335,31 +433,127 @@ document.addEventListener('DOMContentLoaded', () => {
         psParamsDiv.classList.toggle('hidden', !inputs.hasPS.checked);
     });
 
-    timeSlider.addEventListener('input', async () => {
-        const realTime = parseFloat(timeSlider.value);
-        timeVal.textContent = Math.round(realTime);
+    // ---- Timeline -------------------------------------------------------
+    // Frames are fetched one at a time and kept, so replaying a run costs
+    // nothing after the first pass. The cache is capped by total cells rather
+    // than by frame count: 100 frames of a 300x300 grid is nine million
+    // numbers, which is not something to hold on to.
+    const frameCache = new Map();
+    let frameSeq = 0;
 
-        // Simulation time t = step * dt, so step = t / dt. dt now comes from
-        // the solver (it depends on alpha) instead of being hardcoded.
-        const step = Math.round(realTime / simDt);
+    function cacheLimit() {
+        const cells = currentField
+            ? Math.max(1, currentField.rows * currentField.cols) : 400;
+        return Math.max(8, Math.floor(3e6 / cells));
+    }
 
-        try {
-            const response = await fetch(`/run?time=${step}`);
-            if (!response.ok) throw new Error('Failed to fetch timestep');
-            const data = await response.json();
-            drawHeatmap(data);
-            // The server snaps to the nearest stored frame, so report the
-            // time actually being displayed rather than the one requested.
-            if (typeof data.step === 'number') {
-                timeVal.textContent = Math.round(data.step * simDt);
-            }
-        } catch (e) {
-            console.error('Slider error:', e);
+    async function fetchFrame(step) {
+        if (frameCache.has(step)) return frameCache.get(step);
+        const response = await fetch(`/run?time=${step}`);
+        if (!response.ok) throw new Error('Could not load that frame');
+        const data = await response.json();
+        while (frameCache.size >= cacheLimit()) {
+            frameCache.delete(frameCache.keys().next().value);
         }
+        frameCache.set(step, data);
+        return data;
+    }
+
+    function setFrameLabel(idx) {
+        const step = frameSteps[idx];
+        if (step === undefined) return;
+        timeVal.textContent = 't = ' + fmtTime(step * simDt);
+        frameVal.textContent =
+            `frame ${idx + 1} of ${frameSteps.length} — step ${step}`;
+    }
+
+    /**
+     * Show a frame by its index in frameSteps. Dragging fires far faster than
+     * the server answers, so responses are sequence-checked: an older reply
+     * that lands after a newer one is dropped instead of painting a frame the
+     * slider has already moved past.
+     */
+    async function showFrame(idx) {
+        const step = frameSteps[idx];
+        if (step === undefined) return;
+        const seq = ++frameSeq;
+        try {
+            const data = await fetchFrame(step);
+            if (seq !== frameSeq) return;      // a later request won
+            drawHeatmap(data);
+            setFrameLabel(idx);
+        } catch (e) {
+            if (seq === frameSeq) console.error('Frame load failed:', e);
+        }
+    }
+
+    timeSlider.addEventListener('input', () => {
+        stopPlay();
+        const idx = parseInt(timeSlider.value, 10) || 0;
+        setFrameLabel(idx);                    // label tracks the thumb at once
+        showFrame(idx);
     });
+
+    // ---- Playback -------------------------------------------------------
+    let playing = false;
+
+    function stopPlay() {
+        playing = false;
+        playBtn.innerHTML = '&#9654;';
+        playBtn.setAttribute('aria-label', 'Play the simulation');
+    }
+
+    async function play() {
+        if (frameSteps.length < 2) return;
+        playing = true;
+        playBtn.innerHTML = '&#10073;&#10073;';
+        playBtn.setAttribute('aria-label', 'Pause');
+
+        // Restart from the beginning if the timeline is already at the end.
+        let idx = parseInt(timeSlider.value, 10) || 0;
+        if (idx >= frameSteps.length - 1) idx = 0;
+
+        while (playing && idx < frameSteps.length) {
+            timeSlider.value = idx;
+            // Awaiting each frame paces playback to whatever the server can
+            // actually deliver, so it never queues up work it cannot finish.
+            await showFrame(idx);
+            if (!playing) return;
+            await new Promise(r => setTimeout(r, 45));
+            idx++;
+        }
+        stopPlay();
+    }
+
+    playBtn.addEventListener('click', () => (playing ? stopPlay() : play()));
+
+    /** Fetch the list of steps this run stored. */
+    async function loadFrameList(finalStep) {
+        frameSteps = [];
+        try {
+            const response = await fetch('/frames');
+            if (response.ok) {
+                const d = await response.json();
+                if (Array.isArray(d.steps)) frameSteps = d.steps;
+            }
+        } catch (e) { /* fall through to the reconstruction below */ }
+
+        // Older servers have no /frames endpoint; the save interval is enough
+        // to reconstruct which steps exist.
+        if (!frameSteps.length && finalStep >= 0) {
+            const every = Math.max(1, simSaveInterval);
+            for (let s = 0; s <= finalStep; s += every) frameSteps.push(s);
+            if (frameSteps[frameSteps.length - 1] !== finalStep) {
+                frameSteps.push(finalStep);
+            }
+        }
+        return frameSteps;
+    }
 
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
+            // Playback keeps fetching frames it can no longer show.
+            if (btn.dataset.tab !== 'sim-tab') stopPlay();
             tabBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             
@@ -385,12 +579,26 @@ document.addEventListener('DOMContentLoaded', () => {
     canvasTip.className = 'chart-tip hidden';
     document.body.appendChild(canvasTip);
 
+    /**
+     * Where the grid is actually painted inside the canvas element. A
+     * non-square grid is letterboxed by `object-fit: contain`, so the drawn
+     * area is smaller than the element and the hover has to account for it -
+     * otherwise every reading on a 20x300 plate points at the wrong cell.
+     */
+    function paintedRect() {
+        const r = canvas.getBoundingClientRect();
+        if (!currentField) return r;
+        const aspect = currentField.cols / currentField.rows;
+        let w = r.width, h = r.height;
+        if (w / h > aspect) w = h * aspect; else h = w / aspect;
+        return { left: r.left + (r.width - w) / 2,
+                 top: r.top + (r.height - h) / 2, width: w, height: h };
+    }
+
     canvas.addEventListener('mousemove', e => {
         if (!currentField) return;
-        const rect = canvas.getBoundingClientRect();
+        const rect = paintedRect();
         const { rows, cols, data: g } = currentField;
-        // The canvas is one pixel per cell, stretched by CSS, so map the
-        // pointer through the displayed size rather than the backing size.
         const j = Math.floor((e.clientX - rect.left) / rect.width * cols);
         const i = Math.floor((e.clientY - rect.top) / rect.height * rows);
         if (i < 0 || i >= rows || j < 0 || j >= cols || !g[i]) {
@@ -400,13 +608,31 @@ document.addEventListener('DOMContentLoaded', () => {
         // Same bottom-left convention the heat sources use.
         const y = (rows - 1) - i;
         canvasTip.innerHTML =
-            `<strong>${g[i][j].toFixed(2)} \u00b0C</strong><br>x = ${j}, y = ${y}`;
+            `<strong>${fmtValue(g[i][j], 1)}</strong><br>x = ${j}, y = ${y}`;
         canvasTip.classList.remove('hidden');
-        canvasTip.style.left = (e.pageX + 14) + 'px';
+
+        // Keep the tip inside the window: near the right edge it used to run
+        // off the page and get clipped.
+        const tipW = canvasTip.offsetWidth || 120;
+        const overflowsRight = e.clientX + 14 + tipW > window.innerWidth - 8;
+        canvasTip.style.left =
+            (overflowsRight ? e.pageX - tipW - 14 : e.pageX + 14) + 'px';
         canvasTip.style.top = (e.pageY - 8) + 'px';
     });
 
     canvas.addEventListener('mouseleave', () => canvasTip.classList.add('hidden'));
+
+    function rangeOf(field) {
+        let min = Infinity, max = -Infinity;
+        for (let i = 0; i < field.rows; i++) {
+            const row = field.data[i];
+            for (let j = 0; j < field.cols; j++) {
+                if (row[j] < min) min = row[j];
+                if (row[j] > max) max = row[j];
+            }
+        }
+        return { min: min, max: max };
+    }
 
     function drawHeatmap(data) {
         currentField = data;
@@ -415,33 +641,31 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.height = rows;
         const imageData = ctx.createImageData(cols, rows);
 
-        // Calculate dynamic scale
-        let min = Infinity;
-        let max = -Infinity;
-        for (let i = 0; i < rows; i++) {
-            for (let j = 0; j < cols; j++) {
-                const val = grid[i][j];
-                if (val < min) min = val;
-                if (val > max) max = val;
-            }
+        const frame = rangeOf(data);
+
+        // Hold the colour scale fixed across the run unless asked not to.
+        // Per-frame rescaling made the timeline nearly useless: a plate whose
+        // edges are pinned looks the same at every instant, and once a run
+        // converged to a uniform field it divided by a range of ~1e-12 and
+        // painted round-off noise as a full-scale rainbow.
+        let lo = frame.min, hi = frame.max;
+        if (scaleRange && !autoScaleBox.checked) {
+            lo = Math.min(scaleRange.min, frame.min);
+            hi = Math.max(scaleRange.max, frame.max);
         }
 
-        // Update legend
-        const uniform = (max - min) < 1e-9;
-        document.getElementById('legendMin').textContent = `${min.toFixed(1)}°C`;
-        document.getElementById('legendMax').textContent =
-            uniform ? `${max.toFixed(1)}°C (uniform)` : `${max.toFixed(1)}°C`;
+        const flat = (hi - lo) < 1e-9;
+        const range = flat ? 1 : (hi - lo);
+        setValuePrecision(hi - lo);
 
-        const range = max - min || 1;
+        document.getElementById('legendMin').textContent = fmtValue(lo);
+        document.getElementById('legendMax').textContent = fmtValue(hi);
 
         for (let i = 0; i < rows; i++) {
             for (let j = 0; j < cols; j++) {
-                const temp = grid[i][j];
-                const t = (temp - min) / range;
-                
-                const r = Math.floor(t > 0.5 ? (t - 0.5) * 2 * 255 : 0);
-                const b = Math.floor(t < 0.5 ? (0.5 - t) * 2 * 255 : 0);
-                const g = Math.floor((1 - Math.abs(t - 0.5) * 2) * 255);
+                // A field with no spread carries no information, so paint it
+                // one flat mid-scale colour rather than amplifying noise.
+                const [r, g, b] = heatColor(flat ? 0.5 : (grid[i][j] - lo) / range);
                 const index = (i * cols + j) * 4;
                 imageData.data[index] = r;
                 imageData.data[index + 1] = g;
@@ -476,8 +700,18 @@ document.addEventListener('DOMContentLoaded', () => {
             },
         };
 
-        statusText.textContent = 'Running simulation on server...';
+        setStatus('Running simulation on server…');
         runBtn.disabled = true;
+        stopPlay();
+        frameCache.clear();
+
+        // Units for this run. Reaction-diffusion returns a species
+        // concentration in [0, 1] and advances in model time, not seconds.
+        const rdMode = inputs.mode.value === 'fisher' ? 'u'
+                     : (inputs.mode.value === 'gray-scott' ? 'v' : null);
+        fieldUnit = rdMode ? ' ' + rdMode : '°C';
+        fieldName = rdMode ? 'Concentration ' + rdMode : 'Temperature';
+        timeSuffix = rdMode ? '' : ' s';
 
         try {
             const response = await fetch('/run', {
@@ -504,6 +738,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? heatmapData.dt : 0.1;
             simSaveInterval = heatmapData.saveInterval || 1;
 
+            // The run's colour range. The discrete maximum principle puts the
+            // whole evolution between the extremes present at the start, so
+            // the first and last frames bracket every frame in between.
+            scaleRange = rangeOf(heatmapData);
+
             drawHeatmap(heatmapData);
             const isPde = inputs.mode.value === 'pde';
             const isRD = (inputs.mode.value === 'fisher' || inputs.mode.value === 'gray-scott');
@@ -524,7 +763,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   + ` (${heatmapData.rows}x${heatmapData.cols})`;
 
             if (isUniform) {
-                msg += ` \u2014 plate is uniformly ${hi.toFixed(1)}\u00b0C`;
+                msg += ` \u2014 field is uniformly ${fmtValue(hi)}`;
                 const noHeat = [params.top, params.bottom, params.left, params.right]
                     .every(v => Math.abs(v) < 1e-9);
                 if (isPde && params.sources.length) {
@@ -534,24 +773,42 @@ document.addEventListener('DOMContentLoaded', () => {
                     msg += '. Set a boundary temperature, or enable a point source in FDM mode.';
                 }
             }
-            statusText.textContent = msg;
-            
+            setStatus(msg);
+
             if (inputs.mode.value !== 'pde') {
                 timeCtrl.classList.remove('hidden');
 
-                // The slider spans real simulated seconds, from t = 0 to how
-                // long this run actually took to settle. That span depends on
-                // alpha, so it is recomputed per run rather than fixed at
-                // 1000s - which used to truncate the run to its first 10%.
-                const maxSeconds = heatmapData.step * simDt;
-                const stepSeconds = Math.max(1, Math.round(simSaveInterval * simDt));
+                // The slider indexes the frames that were actually stored, so
+                // every position is a real frame and the reported time is the
+                // time of the frame on screen. Whole-second positions used to
+                // collapse to two stops for a run lasting under a second.
+                await loadFrameList(heatmapData.step);
+                const last = Math.max(0, frameSteps.length - 1);
                 timeSlider.min = 0;
-                timeSlider.step = stepSeconds;
-                timeSlider.max = Math.max(stepSeconds, Math.round(maxSeconds));
-                timeSlider.value = timeSlider.max;
-                timeVal.textContent = timeSlider.value;
-                if (sliderMinLabel) sliderMinLabel.textContent = '0s';
-                if (sliderMaxLabel) sliderMaxLabel.textContent = timeSlider.max + 's';
+                timeSlider.step = 1;
+                timeSlider.max = last;
+                timeSlider.value = last;
+                setFrameLabel(last);
+                playBtn.disabled = frameSteps.length < 2;
+                if (sliderMinLabel) {
+                    sliderMinLabel.textContent = fmtTime(frameSteps[0] * simDt);
+                }
+                if (sliderMaxLabel) {
+                    sliderMaxLabel.textContent = fmtTime(frameSteps[last] * simDt);
+                }
+
+                // Widen the locked range with the first frame: a Gray-Scott
+                // run starts as near-uniform seed noise, and scaling that to
+                // full range makes the seed look like a finished pattern.
+                if (frameSteps.length > 1) {
+                    try {
+                        const first = await fetchFrame(frameSteps[0]);
+                        const r0 = rangeOf(first);
+                        scaleRange = { min: Math.min(scaleRange.min, r0.min),
+                                       max: Math.max(scaleRange.max, r0.max) };
+                        drawHeatmap(heatmapData);
+                    } catch (_) { /* keep the final frame's range */ }
+                }
             } else {
                 timeCtrl.classList.add('hidden');
             }
@@ -564,20 +821,64 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
         } catch (e) {
-            statusText.textContent = `Error: ${e.message}`;
+            setStatus(`Error: ${e.message}`, true);
         } finally {
             runBtn.disabled = false;
         }
     }
 
+    function setStatus(text, isError) {
+        statusText.textContent = text;
+        statusText.classList.toggle('is-error', !!isError);
+    }
+
+    /**
+     * History lives in localStorage, which holds only a few megabytes. A
+     * 300x300 grid is 90,000 numbers, so storing the field of every run
+     * filled the quota and threw - and because the write happened inside the
+     * run's try block, a successful simulation then reported itself as failed.
+     */
+    const HISTORY_KEY = 'heat_sim_history';
+    const MAX_STORED_CELLS = 10000;   // 100x100
+
+    function readHistory() {
+        try {
+            return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+        } catch (e) {
+            return [];
+        }
+    }
+
     function saveToHistory(entry) {
-        const history = JSON.parse(localStorage.getItem('heat_sim_history') || '[]');
-        history.unshift(entry);
-        localStorage.setItem('heat_sim_history', JSON.stringify(history.slice(0, 50)));
+        const item = Object.assign({}, entry);
+        if (item.data && item.data.rows * item.data.cols > MAX_STORED_CELLS) {
+            // Keep the settings, drop the field: the run can be reproduced
+            // from its parameters, and the browser cannot hold the grid.
+            item.data = null;
+            item.dataOmitted = true;
+        }
+
+        let history = readHistory();
+        history.unshift(item);
+        history = history.slice(0, 50);
+
+        // Shed the oldest entries until it fits rather than losing the lot.
+        while (history.length) {
+            try {
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+                return;
+            } catch (e) {
+                if (history.length === 1) {
+                    console.warn('History could not be saved:', e);
+                    return;
+                }
+                history = history.slice(0, Math.max(1, history.length - 5));
+            }
+        }
     }
 
     function renderHistory() {
-        const history = JSON.parse(localStorage.getItem('heat_sim_history') || '[]');
+        const history = readHistory();
         const tbody = document.querySelector('#historyTable tbody');
         tbody.innerHTML = '';
 
@@ -632,20 +933,64 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 renderSources();
 
-                alphaParamsDiv.classList.toggle('hidden', item.params.mode === 'pde');
-                psParamsDiv.classList.toggle('hidden', !inputs.hasPS.checked);
+                // Restoring only some of the settings meant that pressing Run
+                // after View reproduced a different simulation from the one on
+                // screen. Insulated edges, material regions and the
+                // reaction-diffusion parameters are part of the run too.
+                materials = Array.isArray(item.params.materials)
+                    ? item.params.materials.map(m => ({ ...m })) : [];
+                renderMaterials();
 
-                drawHeatmap(item.data);
+                const ins = item.params.insulated || {};
+                Object.keys(insBoxes).forEach(k => {
+                    insBoxes[k].checked = !!ins[k];
+                });
+
+                const rdFields = { rdSteps: rd.steps, Du: rd.Du, Dv: rd.Dv,
+                                   feed: rd.feed, kill: rd.kill,
+                                   rdD: rd.D, rdR: rd.r };
+                Object.keys(rdFields).forEach(k => {
+                    if (typeof item.params[k] === 'number' && isFinite(item.params[k])) {
+                        rdFields[k].value = item.params[k];
+                    }
+                });
+
+                stopPlay();
+                syncModeUI();
+                psParamsDiv.classList.toggle('hidden', !inputs.hasPS.checked);
+                timeCtrl.classList.add('hidden');   // the frames on disk are
+                                                    // from the latest run, not
+                                                    // from this stored one
                 document.querySelector('[data-tab="sim-tab"]').click();
-                statusText.textContent = `Restored from history: Step ${item.steps}`;
+
+                if (item.data) {
+                    scaleRange = rangeOf(item.data);
+                    drawHeatmap(item.data);
+                    setStatus(`Restored from history — ${item.steps} steps. `
+                        + 'Press Run to recompute and re-enable the timeline.');
+                } else {
+                    setStatus('Settings restored. The field itself was too large '
+                        + 'to keep in the browser, so press Run to recompute it.');
+                }
             });
         });
     }
 
     document.getElementById('clearHistoryBtn').addEventListener('click', () => {
-        localStorage.removeItem('heat_sim_history');
+        localStorage.removeItem(HISTORY_KEY);
         renderHistory();
     });
+
+    // A scroll over a focused number input silently changes its value in most
+    // browsers, so scrolling past the parameter column could quietly alter the
+    // simulation. Drop focus instead.
+    document.addEventListener('wheel', e => {
+        const el = e.target;
+        if (el instanceof HTMLInputElement && el.type === 'number'
+            && document.activeElement === el) {
+            el.blur();
+        }
+    }, { passive: true });
 
     runBtn.addEventListener('click', runSimulation);
 });

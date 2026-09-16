@@ -189,27 +189,59 @@
                         </div>
                     </div>
 
-                    <div id="time-evolution-ctrl" class="input-group hidden">
-                        <label for="timeSlider">Time Evolution (Time: <span id="timeVal">0</span>s)</label>
-                        <input type="range" id="timeSlider" min="1" max="1000" value="1" class="slider">
-                        <div class="slider-labels">
-                            <span id="sliderMinLabel">0s</span>
-                            <span id="sliderMaxLabel">1000s</span>
-                        </div>
+                    <!-- Docked: the parameter column is several screens long,
+                         so Run stays reachable without scrolling to the end of
+                         it, and the status line stays next to the button that
+                         produces it. -->
+                    <div class="run-dock">
+                        <button id="runBtn" class="primary-btn">Run Simulation</button>
+                        <div id="status" class="status-display">Ready to simulate</div>
                     </div>
-
-                    <button id="runBtn" class="primary-btn">Run Simulation</button>
-                    <div id="status" class="status-display">Ready to simulate</div>
                 </section>
 
                 <section class="panel visualization-panel">
                     <div class="canvas-stage">
                         <canvas id="heatCanvas"></canvas>
                     </div>
+
+                    <!-- Key and time controls sit directly under the plate, so
+                         the field stays in view while the timeline is dragged.
+                         The gradient is generated from the same function that
+                         paints the canvas, so it can never drift from it. -->
                     <div class="legend-container">
                         <div class="legend-label" id="legendMin">0°C</div>
-                        <div class="gradient-bar"></div>
+                        <div class="gradient-bar" id="gradientBar"></div>
                         <div class="legend-label" id="legendMax">100°C</div>
+                    </div>
+
+                    <div class="legend-options">
+                        <label for="colorMap" class="sr-inline">Colour map</label>
+                        <select id="colorMap" class="mini-select">
+                            <option value="thermal">Thermal (blue &rarr; red)</option>
+                            <option value="blackbody">Blackbody (black &rarr; white)</option>
+                            <option value="gray">Grayscale</option>
+                        </select>
+                        <label class="scale-toggle">
+                            <input type="checkbox" id="autoScale">
+                            Rescale each frame
+                        </label>
+                    </div>
+
+                    <div id="time-evolution-ctrl" class="time-ctrl hidden">
+                        <div class="time-head">
+                            <button type="button" id="playBtn" class="play-btn"
+                                    aria-label="Play the simulation">&#9654;</button>
+                            <label for="timeSlider" class="time-readout">
+                                <span id="timeVal">0</span>
+                                <span class="frame-count" id="frameVal"></span>
+                            </label>
+                        </div>
+                        <input type="range" id="timeSlider" min="0" max="1" value="0"
+                               step="1" class="slider" aria-label="Simulation time">
+                        <div class="slider-labels">
+                            <span id="sliderMinLabel">start</span>
+                            <span id="sliderMaxLabel">end</span>
+                        </div>
                     </div>
                 </section>
             </div>

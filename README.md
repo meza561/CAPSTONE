@@ -85,8 +85,9 @@ so $\Delta t$ is **derived from that limit** ($F = 0.2$) rather than fixed:
 $$\Delta t = \frac{0.2 \, \Delta x^2}{\alpha}$$
 
 Real elapsed time is $t = \text{step} \times \Delta t$. The solver reports
-`dt` and `saveInterval` in its JSON output, and the time slider spans
-$t = 0$ to the run's actual convergence time in real seconds. Because
+`dt` and `saveInterval` in its JSON output, and the time slider steps through
+the frames that were actually stored, from $t = 0$ to the run's convergence
+time. Because
 $\Delta t$ scales inversely with $\alpha$, a lower diffusivity correctly takes
 *longer* in physical time: $\alpha = 0.01$ spans ~15,300 s while
 $\alpha = 1.0$ spans ~153 s.
@@ -338,6 +339,7 @@ quoting any figure.
   - **Response**: `{ "status", "output", "data": { "step", "rows", "cols", "dt", "saveInterval", "data" } }`
   - On failure, `message` carries the solver's actual stderr.
 - `GET /run?time=X`: Retrieves the stored state at timestep X, snapping down to the nearest saved frame.
+- `GET /frames`: Lists the step numbers stored for the current run, so the timeline can address exact frames instead of guessing them from the save interval.
 - `GET /study`: Returns the convergence/stability results, or 404 if `./run_study.sh` has not been run.
 
 **Fisher-KPP front speed.** Measured against the exact $c^* = 2\sqrt{Dr}$ for

@@ -115,6 +115,32 @@ def study():
                         "message": f"Could not read study results: {e}"}), 500
 
 
+@app.route('/frames')
+def frames():
+    """The step numbers stored for the current run, in order.
+
+    The UI slider indexes this list. Without it the client had to guess which
+    steps exist from the save interval, round to whole seconds, and let the
+    server snap to whatever was nearest - so the time it displayed was not
+    quite the time of the frame it was showing.
+    """
+    if not os.path.exists(DB_NAME):
+        return jsonify({"steps": []})
+
+    conn = sqlite3.connect(DB_NAME)
+    try:
+        cursor = conn.cursor()
+        # Index-only scan of the (step, x, y) primary key.
+        cursor.execute("SELECT DISTINCT step FROM HeatMap ORDER BY step")
+        steps = [r[0] for r in cursor.fetchall()]
+    except sqlite3.OperationalError:
+        steps = []          # nothing has been run yet
+    finally:
+        conn.close()
+
+    return jsonify({"steps": steps})
+
+
 @app.route('/run', methods=['POST'])
 def run_simulation():
     data = request.json
