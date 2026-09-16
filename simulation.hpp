@@ -13,6 +13,22 @@
 
 class HeatSimulation {
 public:
+    /**
+     * Time integration scheme.
+     *
+     *   Explicit       forward Euler. O(dt), and only stable for
+     *                  F = alpha*dt/dx^2 <= 1/4.
+     *   BackwardEuler  implicit, via Douglas-Rachford ADI. O(dt),
+     *                  unconditionally stable.
+     *   CrankNicolson  implicit, via Peaceman-Rachford ADI. O(dt^2),
+     *                  unconditionally stable.
+     *
+     * Both implicit schemes split the 2D solve into two sets of tridiagonal
+     * systems (one per grid line) solved with the Thomas algorithm, so a step
+     * stays O(rows*cols) rather than requiring a full 2D matrix solve.
+     */
+    enum class Method { Explicit, BackwardEuler, CrankNicolson };
+
     struct PointSource {
         int r, c;
         double temp;
@@ -24,10 +40,14 @@ public:
         nextGrid.resize(rows, std::vector<double>(cols, 0.0));
     }
 
+    void setMethod(Method m) { method = m; }
+    Method getMethod() const { return method; }
+
     void setBoundary(int r, int c, double temp) {
         if (r >= 0 && r < rows && c >= 0 && c < cols) {
             grid[r][c] = temp;
             nextGrid[r][c] = temp;
+            pinnedDirty = true;
         }
     }
 
@@ -35,10 +55,20 @@ public:
         if (r >= 0 && r < rows && c >= 0 && c < cols) {
             pointSources.push_back({r, c, temp});
             grid[r][c] = temp;
+            pinnedDirty = true;
         }
     }
 
+    /** Advance one step with the selected scheme; returns max |change|. */
     double step() {
+        switch (method) {
+            case Method::BackwardEuler: return stepADI(false);
+            case Method::CrankNicolson: return stepADI(true);
+            default:                    return stepExplicit();
+        }
+    }
+
+    double stepExplicit() {
         double maxDiff = 0.0;
         double factor = alpha * dt / (dx * dx);
 
@@ -132,10 +162,120 @@ public:
     int getCols() const { return cols; }
 
 private:
+    // Cells whose value is imposed rather than solved for: the Dirichlet
+    // boundary ring plus any interior heat source. In the tridiagonal systems
+    // these become identity rows, which is what keeps a source pinned through
+    // an implicit solve.
+    void rebuildPinned() {
+        pinned.assign(rows, std::vector<char>(cols, 0));
+        for (int j = 0; j < cols; ++j) { pinned[0][j] = 1; pinned[rows - 1][j] = 1; }
+        for (int i = 0; i < rows; ++i) { pinned[i][0] = 1; pinned[i][cols - 1] = 1; }
+        for (const auto& ps : pointSources) pinned[ps.r][ps.c] = 1;
+        pinnedDirty = false;
+    }
+
+    /** Thomas algorithm: O(n) solve of a tridiagonal system. */
+    static void thomas(const std::vector<double>& a, const std::vector<double>& b,
+                       const std::vector<double>& c, const std::vector<double>& d,
+                       std::vector<double>& x,
+                       std::vector<double>& cp, std::vector<double>& dp) {
+        const int n = static_cast<int>(d.size());
+        cp[0] = c[0] / b[0];
+        dp[0] = d[0] / b[0];
+        for (int i = 1; i < n; ++i) {
+            const double m = b[i] - a[i] * cp[i - 1];
+            cp[i] = c[i] / m;
+            dp[i] = (d[i] - a[i] * dp[i - 1]) / m;
+        }
+        x[n - 1] = dp[n - 1];
+        for (int i = n - 2; i >= 0; --i) x[i] = dp[i] - cp[i] * x[i + 1];
+    }
+
+    /**
+     * One implicit step by alternating direction.
+     *
+     * Crank-Nicolson (Peaceman-Rachford), with rc = r/2:
+     *     (I - rc*dxx) u*   = (I + rc*dyy) u^n
+     *     (I - rc*dyy) u^n+1 = (I + rc*dxx) u*
+     *
+     * Backward Euler (Douglas-Rachford), with rc = r:
+     *     (I - rc*dxx) u*   = (I + rc*dyy) u^n
+     *     (I - rc*dyy) u^n+1 = u* - rc*dyy u^n
+     *
+     * Every line is swept, including the boundary lines: pinned cells solve as
+     * identity rows, so their values carry through untouched.
+     */
+    double stepADI(bool crankNicolson) {
+        if (pinnedDirty) rebuildPinned();
+
+        const double r  = alpha * dt / (dx * dx);
+        const double rc = crankNicolson ? 0.5 * r : r;
+        const double diag = 1.0 + 2.0 * rc;
+
+        adiMid.assign(rows, std::vector<double>(cols, 0.0));
+        adiOut.assign(rows, std::vector<double>(cols, 0.0));
+
+        const int nmax = std::max(rows, cols);
+        std::vector<double> a(nmax), b(nmax), c(nmax), d(nmax), x(nmax), cp(nmax), dp(nmax);
+
+        // --- sweep 1: implicit along x, one system per row ---
+        a.resize(cols); b.resize(cols); c.resize(cols);
+        d.resize(cols); x.resize(cols); cp.resize(cols); dp.resize(cols);
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                if (pinned[i][j]) {
+                    a[j] = 0.0; b[j] = 1.0; c[j] = 0.0;
+                    d[j] = grid[i][j];
+                } else {
+                    a[j] = -rc; b[j] = diag; c[j] = -rc;
+                    d[j] = grid[i][j]
+                         + rc * (grid[i - 1][j] - 2.0 * grid[i][j] + grid[i + 1][j]);
+                }
+            }
+            thomas(a, b, c, d, x, cp, dp);
+            for (int j = 0; j < cols; ++j) adiMid[i][j] = x[j];
+        }
+
+        // --- sweep 2: implicit along y, one system per column ---
+        a.resize(rows); b.resize(rows); c.resize(rows);
+        d.resize(rows); x.resize(rows); cp.resize(rows); dp.resize(rows);
+        for (int j = 0; j < cols; ++j) {
+            for (int i = 0; i < rows; ++i) {
+                if (pinned[i][j]) {
+                    a[i] = 0.0; b[i] = 1.0; c[i] = 0.0;
+                    d[i] = grid[i][j];
+                } else {
+                    a[i] = -rc; b[i] = diag; c[i] = -rc;
+                    d[i] = crankNicolson
+                        ? adiMid[i][j] + rc * (adiMid[i][j - 1] - 2.0 * adiMid[i][j]
+                                               + adiMid[i][j + 1])
+                        : adiMid[i][j] - rc * (grid[i - 1][j] - 2.0 * grid[i][j]
+                                               + grid[i + 1][j]);
+                }
+            }
+            thomas(a, b, c, d, x, cp, dp);
+            for (int i = 0; i < rows; ++i) adiOut[i][j] = x[i];
+        }
+
+        double maxDiff = 0.0;
+        for (int i = 1; i < rows - 1; ++i) {
+            for (int j = 1; j < cols - 1; ++j) {
+                maxDiff = std::max(maxDiff, std::abs(adiOut[i][j] - grid[i][j]));
+            }
+        }
+        std::swap(grid, adiOut);
+        return maxDiff;
+    }
+
     int rows, cols;
     double alpha, dx, dt;
+    Method method = Method::Explicit;
     std::vector<std::vector<double>> grid;
     std::vector<std::vector<double>> nextGrid;
+    std::vector<std::vector<double>> adiMid;
+    std::vector<std::vector<double>> adiOut;
+    std::vector<std::vector<char>> pinned;
+    bool pinnedDirty = true;
     std::vector<PointSource> pointSources;
 };
 

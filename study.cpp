@@ -25,6 +25,7 @@
 #include <sstream>
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 
 using Grid = std::vector<std::vector<double>>;
 
@@ -82,10 +83,12 @@ struct SteadyResult { Grid grid; long long steps; bool converged; };
 // Iterate the explicit scheme until the per-step change falls below tol.
 SteadyResult runSteady(int N, double F,
                        double top, double bottom, double left, double right,
-                       double tol, long long maxSteps) {
+                       double tol, long long maxSteps,
+                       HeatSimulation::Method m = HeatSimulation::Method::Explicit) {
     const double dx = 1.0 / (N - 1);
     const double dt = F * dx * dx / ALPHA;
     HeatSimulation sim(N, N, ALPHA, dx, dt);
+    sim.setMethod(m);
     applyBoundaries(sim, N, top, bottom, left, right);
 
     long long s = 0;
@@ -98,10 +101,12 @@ SteadyResult runSteady(int N, double F,
 
 // Advance exactly `steps` steps, i.e. to physical time steps*dt.
 Grid runToTime(int N, double F, long long steps,
-               double top, double bottom, double left, double right) {
+               double top, double bottom, double left, double right,
+               HeatSimulation::Method m = HeatSimulation::Method::Explicit) {
     const double dx = 1.0 / (N - 1);
     const double dt = F * dx * dx / ALPHA;
     HeatSimulation sim(N, N, ALPHA, dx, dt);
+    sim.setMethod(m);
     applyBoundaries(sim, N, top, bottom, left, right);
     for (long long s = 0; s < steps; ++s) sim.step();
     return sim.getGrid();
@@ -251,7 +256,11 @@ int main() {
     json << "    },\n    \"theoretical_order\": 2\n  },\n";
 
     // ----------------------------------------------------------------- 2. time
-    std::cout << "\n=== 2. TEMPORAL CONVERGENCE (fixed t*, vs fine-dt reference) ===\n";
+    // Temporal order for each scheme. Forward and backward Euler are both
+    // O(dt); Crank-Nicolson is O(dt^2). Every scheme is measured against a
+    // reference computed with ITS OWN discretisation at a 256x smaller step,
+    // so what is isolated is each scheme's own time-stepping error.
+    std::cout << "\n=== 2. TEMPORAL CONVERGENCE (fixed t*, vs each scheme's fine-dt reference) ===\n";
     const int Nt = 41;
     const double dxt = 1.0 / (Nt - 1);
     const double F0 = 0.2;
@@ -259,49 +268,110 @@ int main() {
     const double dt0 = F0 * dxt * dxt / ALPHA;
     const double tStar = steps0 * dt0;
     std::cout << "grid " << Nt << "x" << Nt << " ; t* = " << std::scientific
-              << std::setprecision(4) << tStar << " s\n\n";
-    std::cout << "        F              dt        steps          L2 err       Linf err   order(L2)\n";
+              << std::setprecision(4) << tStar << " s\n";
 
-    // Reference: same t*, 256x smaller dt.
-    const Grid ref = runToTime(Nt, F0 / 256.0, steps0 * 256, 100, 0, 0, 0);
+    struct SchemeCase {
+        const char* key; const char* label;
+        HeatSimulation::Method m; int theory;
+    };
+    const std::vector<SchemeCase> schemes = {
+        {"explicit",       "explicit (forward Euler)", HeatSimulation::Method::Explicit,      1},
+        {"backward_euler", "backward Euler (ADI)",     HeatSimulation::Method::BackwardEuler, 1},
+        {"crank_nicolson", "Crank-Nicolson (ADI)",     HeatSimulation::Method::CrankNicolson, 2},
+    };
 
-    std::vector<double> dts, tl2s, tlinfs;
     std::ofstream csvT("study_temporal.csv");
-    csvT << "F,dt,steps,l2,linf\n";
+    csvT << "scheme,F,dt,steps,l2,linf\n";
     json << "  \"temporal\": {\n    \"N\": " << Nt << ", \"t_star\": " << num(tStar)
-         << ", \"reference_F\": " << num(F0 / 256.0) << ",\n    \"points\": [\n";
+         << ", \"reference_F\": " << num(F0 / 256.0) << ",\n    \"schemes\": {\n";
 
     const int LEVELS = 5;
-    for (int k = 0; k < LEVELS; ++k) {
-        const double F = F0 / std::pow(2.0, k);
-        const long long steps = steps0 * (1LL << k);
-        const double dt = F * dxt * dxt / ALPHA;
-        const Grid g = runToTime(Nt, F, steps, 100, 0, 0, 0);
-        const Norms e = compareInterior(g, ref);
+    for (size_t si = 0; si < schemes.size(); ++si) {
+        const SchemeCase& S = schemes[si];
+        std::cout << "\n  " << S.label << "\n";
+        std::cout << "        F              dt        steps          L2 err       Linf err   order(L2)\n";
 
-        dts.push_back(dt); tl2s.push_back(e.l2); tlinfs.push_back(e.linf);
-        double order = std::nan("");
-        if (k > 0) order = std::log(tl2s[k-1] / tl2s[k]) / std::log(dts[k-1] / dts[k]);
+        const Grid ref = runToTime(Nt, F0 / 256.0, steps0 * 256, 100, 0, 0, 0, S.m);
+        std::vector<double> dts, tl2s;
+        json << "      \"" << S.key << "\": {\"label\": \"" << S.label
+             << "\", \"theoretical_order\": " << S.theory << ", \"points\": [\n";
 
-        std::cout << std::scientific << std::setprecision(4)
-                  << std::setw(10) << F << std::setw(16) << dt
-                  << std::setw(13) << steps
-                  << std::setw(16) << e.l2 << std::setw(15) << e.linf;
-        if (k > 0) std::cout << std::fixed << std::setprecision(3) << std::setw(12) << order;
-        else       std::cout << std::setw(12) << "-";
-        std::cout << "\n";
+        for (int k = 0; k < LEVELS; ++k) {
+            const double F = F0 / std::pow(2.0, k);
+            const long long steps = steps0 * (1LL << k);
+            const double dt = F * dxt * dxt / ALPHA;
+            const Grid g = runToTime(Nt, F, steps, 100, 0, 0, 0, S.m);
+            const Norms e = compareInterior(g, ref);
 
-        csvT << F << "," << dt << "," << steps << "," << e.l2 << "," << e.linf << "\n";
-        json << "      {\"F\": " << num(F) << ", \"dt\": " << num(dt)
-             << ", \"steps\": " << steps
-             << ", \"l2\": " << num(e.l2) << ", \"linf\": " << num(e.linf) << "}"
-             << (k + 1 < LEVELS ? "," : "") << "\n";
+            dts.push_back(dt); tl2s.push_back(e.l2);
+            double order = std::nan("");
+            if (k > 0) order = std::log(tl2s[k-1] / tl2s[k]) / std::log(dts[k-1] / dts[k]);
+
+            std::cout << std::scientific << std::setprecision(4)
+                      << std::setw(10) << F << std::setw(16) << dt
+                      << std::setw(13) << steps
+                      << std::setw(16) << e.l2 << std::setw(15) << e.linf;
+            if (k > 0) std::cout << std::fixed << std::setprecision(3) << std::setw(12) << order;
+            else       std::cout << std::setw(12) << "-";
+            std::cout << "\n";
+
+            csvT << S.key << "," << F << "," << dt << "," << steps << ","
+                 << e.l2 << "," << e.linf << "\n";
+            json << "        {\"F\": " << num(F) << ", \"dt\": " << num(dt)
+                 << ", \"steps\": " << steps
+                 << ", \"l2\": " << num(e.l2) << ", \"linf\": " << num(e.linf) << "}"
+                 << (k + 1 < LEVELS ? "," : "") << "\n";
+        }
+        const double o = fitOrder(dts, tl2s);
+        std::cout << "    fitted order = " << std::fixed << std::setprecision(3) << o
+                  << "   (theory: " << S.theory << ")\n";
+        json << "        ], \"fitted_order_l2\": " << num(o) << "}"
+             << (si + 1 < schemes.size() ? "," : "") << "\n";
     }
-    const double torderL2 = fitOrder(dts, tl2s);
-    std::cout << "\n  fitted order: L2 = " << std::fixed << std::setprecision(3)
-              << torderL2 << "   (theory: 1, forward Euler)\n";
-    json << "    ],\n    \"fitted_order_l2\": " << num(torderL2)
-         << ", \"theoretical_order\": 1\n  },\n";
+    json << "    }\n  },\n";
+
+    // ------------------------------------------------------------- 2b. cost
+    // Accuracy is only half the argument: the implicit schemes cost more per
+    // step but are not bound by F <= 1/4, so they can take far fewer of them.
+    std::cout << "\n=== 2b. COST TO STEADY STATE (41x41, exact centre = 25) ===\n\n";
+    std::cout << "  scheme                          F     steps     seconds     centre      error\n";
+    const Grid exactCost = analytical(Nt, 100, 0, 0, 0);
+    std::ofstream csvC("study_cost.csv");
+    csvC << "scheme,F,steps,seconds,centre,error\n";
+    json << "  \"cost\": {\"N\": " << Nt << ", \"exact_centre\": 25.0, \"runs\": [\n";
+
+    struct CostCase { const char* key; const char* label; HeatSimulation::Method m; double F; };
+    const std::vector<CostCase> costCases = {
+        {"explicit",       "explicit (forward Euler)", HeatSimulation::Method::Explicit,      0.2},
+        {"backward_euler", "backward Euler (ADI)",     HeatSimulation::Method::BackwardEuler, 5.0},
+        {"crank_nicolson", "Crank-Nicolson (ADI)",     HeatSimulation::Method::CrankNicolson, 5.0},
+        {"crank_nicolson_f50", "Crank-Nicolson, F=50", HeatSimulation::Method::CrankNicolson, 50.0},
+    };
+    for (size_t ci = 0; ci < costCases.size(); ++ci) {
+        const CostCase& C = costCases[ci];
+        const auto t0 = std::chrono::steady_clock::now();
+        const SteadyResult r = runSteady(Nt, C.F, 100, 0, 0, 0, 1e-8, 2000000LL, C.m);
+        const auto t1 = std::chrono::steady_clock::now();
+        const double secs = std::chrono::duration<double>(t1 - t0).count();
+        const double centre = r.grid[Nt/2][Nt/2];
+        const double err = std::fabs(centre - exactCost[Nt/2][Nt/2]);
+
+        std::cout << "  " << std::left << std::setw(28) << C.label << std::right
+                  << std::fixed << std::setprecision(1) << std::setw(7) << C.F
+                  << std::setw(10) << r.steps
+                  << std::setprecision(3) << std::setw(12) << secs
+                  << std::setprecision(4) << std::setw(11) << centre
+                  << std::scientific << std::setprecision(2) << std::setw(11) << err << "\n";
+
+        csvC << C.key << "," << C.F << "," << r.steps << "," << secs << ","
+             << centre << "," << err << "\n";
+        json << "      {\"key\": \"" << C.key << "\", \"label\": \"" << C.label
+             << "\", \"F\": " << num(C.F) << ", \"steps\": " << r.steps
+             << ", \"seconds\": " << num(secs) << ", \"centre\": " << num(centre)
+             << ", \"error\": " << num(err) << "}"
+             << (ci + 1 < costCases.size() ? "," : "") << "\n";
+    }
+    json << "    ]\n  },\n";
 
     // ------------------------------------------------------------ 3. stability
     std::cout << "\n=== 3. STABILITY SWEEP (theoretical limit F <= 0.25) ===\n\n";

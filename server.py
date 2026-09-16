@@ -128,9 +128,21 @@ def run_simulation():
         bottom = str(_clamp_float(data.get('bottom', 0), -1e6, 1e6, 0.0))
         left = str(_clamp_float(data.get('left', 0), -1e6, 1e6, 0.0))
         right = str(_clamp_float(data.get('right', 0), -1e6, 1e6, 0.0))
+        # 'fdm' is kept as an alias for the explicit scheme so older saved
+        # runs and the previous API shape still work.
         mode = str(data.get('mode', 'fdm'))
-        if mode not in ('fdm', 'pde'):
+        if mode == 'explicit':
             mode = 'fdm'
+        if mode not in ('fdm', 'be', 'cn', 'pde'):
+            mode = 'fdm'
+
+        # Diffusion number. The explicit scheme is only stable to 0.25, so it
+        # is held there; the implicit schemes are unconditionally stable and
+        # take whatever the user asks for.
+        if mode == 'fdm':
+            diffusion = 0.2
+        else:
+            diffusion = _clamp_float(data.get('F', 5.0), 1e-4, 1000.0, 5.0)
         # alpha sets the timestep (dt = 0.2*dx^2/alpha), so a zero or negative
         # value would be a division by zero in the solver.
         alpha = str(_clamp_float(data.get('alpha', 0.01), 1e-4, 1e3, 0.01))
@@ -168,7 +180,8 @@ def run_simulation():
             source_args.extend([str(row), str(x), str(t)])
 
         # Execute the C++ binary
-        cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha]
+        cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha,
+               str(diffusion)]
         cmd.extend(source_args)
             
         try:

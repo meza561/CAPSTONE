@@ -25,10 +25,12 @@
                     <h2 class="panel-title">Simulation Parameters</h2>
                     
                     <div class="input-group">
-                        <label for="simMode">Simulation Mode</label>
+                        <label for="simMode">Method</label>
                         <select id="simMode" class="mode-select">
-                            <option value="fdm">Initial Conditions (FDM)</option>
-                            <option value="pde">PDE-driven (Analytical)</option>
+                            <option value="fdm">Explicit (forward Euler)</option>
+                            <option value="be">Backward Euler (implicit)</option>
+                            <option value="cn">Crank&ndash;Nicolson (implicit)</option>
+                            <option value="pde">Analytical steady state</option>
                         </select>
                     </div>
 
@@ -39,6 +41,12 @@
                             <span class="separator">×</span>
                             <input type="number" id="cols" value="20" min="2" max="300" placeholder="Cols">
                         </div>
+                    </div>
+
+                    <div id="f-params" class="input-group hidden">
+                        <label for="diffusionF">Diffusion number F = &alpha;&Delta;t/&Delta;x&sup2;</label>
+                        <input type="number" id="diffusionF" value="5" min="0.0001" max="1000" step="0.5">
+                        <p class="ps-hint" id="f-hint"></p>
                     </div>
 
                     <div id="alpha-params" class="input-group">
@@ -175,6 +183,11 @@
                         <figure class="chart-card">
                             <figcaption id="cap-temporal" class="chart-caption"></figcaption>
                             <div id="chart-temporal"></div>
+                        </figure>
+
+                        <figure class="chart-card">
+                            <figcaption id="cap-cost" class="chart-caption"></figcaption>
+                            <div id="cost-bars"></div>
                         </figure>
 
                         <figure class="chart-card">

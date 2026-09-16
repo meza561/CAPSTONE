@@ -6,7 +6,7 @@ equation.
 
 ## Architecture
 - **Backend**: C++ simulation engine for high-performance computation, wrapped in a Python Flask API.
-- **Frontend**: Dynamic HTML5/JS visualization with a heatmap renderer and simulation history.
+- **Frontend**: Dynamic HTML5/JS visualization with a heatmap renderer and simulation history. Hovering the heatmap reports the temperature and (x, y) under the cursor.
 - **Data**: SQLite stores the timesteps of the current run; JSON carries results to the frontend; LocalStorage keeps the run history.
 
 ## Getting Started
@@ -31,10 +31,27 @@ already held by something else (on macOS this is often AirPlay Receiver).
 
 ## Simulation Modes
 
-### Initial Conditions (FDM)
-Uses the Finite Difference Method to iteratively solve the heat equation. The
-boundaries are held fixed (Dirichlet), so the interior evolves in time toward
-steady state.
+### Time-marching schemes (FDM)
+The boundaries are held fixed (Dirichlet), so the interior evolves in time
+toward steady state. Three time integrators are available:
+
+| Scheme | Accuracy | Stability | Cost per step |
+|---|---|---|---|
+| Explicit (forward Euler) | O(dt) | only for F <= 1/4 | cheapest |
+| Backward Euler (ADI) | O(dt) | unconditional | two tridiagonal sweeps |
+| Crank-Nicolson (ADI) | **O(dt^2)** | unconditional | two tridiagonal sweeps |
+
+Both implicit schemes use **alternating direction implicit** splitting, so a 2D
+step reduces to one tridiagonal system per grid line, solved with the Thomas
+algorithm in O(rows x cols) rather than requiring a full 2D matrix solve.
+Backward Euler uses the Douglas-Rachford split, Crank-Nicolson the
+Peaceman-Rachford split. Dirichlet boundaries and pinned interior heat sources
+enter the systems as identity rows, which is what holds a source fixed through
+an implicit solve.
+
+Because the implicit schemes are unconditionally stable, F is a free parameter
+for them and is exposed in the UI: values of 50 or 500 remain bounded where the
+explicit scheme diverges above 0.25.
 
 **Heat sources.** Any number of cells (up to 32) can be pinned at a fixed
 temperature, acting as persistent heat origins. Each is given as $(x, y, C)$ with
@@ -107,9 +124,31 @@ cold sides the exact solution is singular at the two top corners, so the
 attainable order is capped near 1 and the max-norm error does not decrease at
 all, however fine the grid. Reporting both is the honest result.
 
-**Temporal convergence.** At a fixed physical time on a fixed grid, against a
-reference run with a 256x smaller step: measured order **1.02**, matching
-forward Euler's O(dt).
+**Temporal convergence.** At a fixed physical time on a fixed grid, each scheme
+measured against a reference computed with its own discretisation at a 256x
+smaller step:
+
+| Scheme | Measured order | Theory |
+|---|---|---|
+| Explicit | 1.02 | 1 |
+| Backward Euler | 1.02 | 1 |
+| Crank-Nicolson | **2.00** | 2 |
+
+At equal dt, Crank-Nicolson's error is roughly 2000x smaller than either
+first-order scheme.
+
+**Cost to steady state** (41x41 grid, all converging to the same exact centre
+temperature of 25 C):
+
+| Scheme | F | Steps |
+|---|---|---|
+| Explicit | 0.2 | 6,529 |
+| Backward Euler | 5 | 324 |
+| Crank-Nicolson | 5 | 315 |
+
+Roughly 20x fewer steps. Each implicit step costs more, so wall-clock times are
+comparable at this grid size; the step-count advantage grows with the grid,
+since the explicit limit forces dt down as dx^2.
 
 **Stability.** Sweeping the diffusion number across the theoretical limit:
 
@@ -140,6 +179,8 @@ The analytical solver matches to machine precision; FDM converges to within
 - `GET /`: Serves the frontend.
 - `POST /run`: Executes a simulation.
   - **Payload**: `{ "rows": 20, "cols": 20, "top": 100, "bottom": 0, "left": 0, "right": 0, "mode": "fdm", "alpha": 0.01 }`
+    - `mode`: `fdm` (explicit), `be` (backward Euler), `cn` (Crank-Nicolson), `pde` (analytical)
+    - `F`: diffusion number, implicit schemes only; explicit is pinned at 0.2
     - optional heat sources: `"hasPointSource": true, "sources": [{"x": 50, "y": 50, "temp": 1000}, {"x": 20, "y": 80, "temp": 500}]`
       (coordinates are bottom-left origin; out-of-range values are clamped to the grid.
       The older single-source form `psR`/`psC`/`psTemp` is still accepted.)

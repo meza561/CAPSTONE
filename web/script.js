@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const inputs = {
         mode: document.getElementById('simMode'),
+        F: document.getElementById('diffusionF'),
         alpha: document.getElementById('alpha'),
         rows: document.getElementById('rows'),
         cols: document.getElementById('cols'),
@@ -184,14 +185,30 @@ document.addEventListener('DOMContentLoaded', () => {
     // Alpha drives the time-dependent FDM solve only; the analytical steady
     // state is independent of diffusivity. Without this listener the control
     // was never shown at all, so alpha could not be changed from the UI.
+    const fParams = document.getElementById('f-params');
+    const fHint = document.getElementById('f-hint');
+
     function syncModeUI() {
-        const isPde = inputs.mode.value === 'pde';
+        const mode = inputs.mode.value;
+        const isPde = mode === 'pde';
+        const isImplicit = (mode === 'be' || mode === 'cn');
+
         alphaParamsDiv.classList.toggle('hidden', isPde);
         // The analytical solver works from the four boundary temperatures
         // only - it has no notion of a point source - so hide the control
         // rather than let it sit there being silently ignored.
         if (psGroup) psGroup.classList.toggle('hidden', isPde);
         if (isPde) timeCtrl.classList.add('hidden');
+
+        // F is only a free parameter for the implicit schemes. The explicit
+        // one is pinned at 0.2 because it diverges above 0.25.
+        if (fParams) fParams.classList.toggle('hidden', !isImplicit);
+        if (fHint) {
+            fHint.textContent = isImplicit
+                ? 'Unconditionally stable \u2014 try 50 or 500. The explicit scheme '
+                  + 'diverges above 0.25, which is why its step size is fixed.'
+                : '';
+        }
     }
     inputs.mode.addEventListener('change', syncModeUI);
     syncModeUI();
@@ -241,7 +258,40 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- hover readout ---------------------------------------------------
+    // Whatever is currently on the canvas, so a hover can look up the value
+    // under the cursor without re-fetching.
+    let currentField = null;
+
+    const canvasTip = document.createElement('div');
+    canvasTip.className = 'chart-tip hidden';
+    document.body.appendChild(canvasTip);
+
+    canvas.addEventListener('mousemove', e => {
+        if (!currentField) return;
+        const rect = canvas.getBoundingClientRect();
+        const { rows, cols, data: g } = currentField;
+        // The canvas is one pixel per cell, stretched by CSS, so map the
+        // pointer through the displayed size rather than the backing size.
+        const j = Math.floor((e.clientX - rect.left) / rect.width * cols);
+        const i = Math.floor((e.clientY - rect.top) / rect.height * rows);
+        if (i < 0 || i >= rows || j < 0 || j >= cols || !g[i]) {
+            canvasTip.classList.add('hidden');
+            return;
+        }
+        // Same bottom-left convention the heat sources use.
+        const y = (rows - 1) - i;
+        canvasTip.innerHTML =
+            `<strong>${g[i][j].toFixed(2)} \u00b0C</strong><br>x = ${j}, y = ${y}`;
+        canvasTip.classList.remove('hidden');
+        canvasTip.style.left = (e.pageX + 14) + 'px';
+        canvasTip.style.top = (e.pageY - 8) + 'px';
+    });
+
+    canvas.addEventListener('mouseleave', () => canvasTip.classList.add('hidden'));
+
     function drawHeatmap(data) {
+        currentField = data;
         const { rows, cols, data: grid } = data;
         canvas.width = cols;
         canvas.height = rows;
@@ -296,6 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
             right: parseFloat(inputs.right.value),
             hasPointSource: inputs.hasPS.checked,
             sources: validSources(),
+            F: parseFloat(inputs.F.value),
         };
 
         statusText.textContent = 'Running simulation on server...';
@@ -334,9 +385,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // A steady state is a single frame, so "max step" is meaningless
             // for the analytical solver and reads like a failure.
+            const scheme = heatmapData.scheme || '';
             let msg = isPde
                 ? `Analytical steady state (${heatmapData.rows}x${heatmapData.cols})`
-                : `Complete! Max Step ${heatmapData.step} (${heatmapData.rows}x${heatmapData.cols})`;
+                : `${scheme ? scheme.charAt(0).toUpperCase() + scheme.slice(1) : 'Complete'}`
+                  + ` \u2014 ${heatmapData.step + 1} steps`
+                  + (heatmapData.F ? `, F = ${heatmapData.F}` : '')
+                  + ` (${heatmapData.rows}x${heatmapData.cols})`;
 
             if (isUniform) {
                 msg += ` \u2014 plate is uniformly ${hi.toFixed(1)}\u00b0C`;
@@ -351,7 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             statusText.textContent = msg;
             
-            if (inputs.mode.value === 'fdm') {
+            if (inputs.mode.value !== 'pde') {
                 timeCtrl.classList.remove('hidden');
 
                 // The slider spans real simulated seconds, from t = 0 to how
@@ -422,6 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const item = history[index];
                 
                 inputs.mode.value = item.params.mode;
+                if (item.params.F) inputs.F.value = item.params.F;
                 inputs.alpha.value = item.params.alpha;
                 inputs.rows.value = item.params.rows;
                 inputs.cols.value = item.params.cols;

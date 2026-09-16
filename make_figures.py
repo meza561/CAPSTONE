@@ -22,6 +22,7 @@ except ImportError:
 # Validated for colour-vision deficiency against the app's white panel.
 SERIES_1 = "#2a78d6"   # blue
 SERIES_2 = "#eb6834"   # orange
+SERIES_3 = "#1baf7a"   # aqua
 UNSTABLE = "#e34948"   # red
 INK      = "#0b0b0b"
 INK_2    = "#52514e"
@@ -116,24 +117,71 @@ def fig_spatial(d):
 
 def fig_temporal(d):
     t = d["temporal"]
-    pts = t["points"]
-    dt = [p["dt"] for p in pts]
-    l2 = [p["l2"] for p in pts]
+    order_of = [
+        ("explicit", SERIES_1, "o", "Explicit"),
+        ("backward_euler", SERIES_2, "s", "Backward Euler"),
+        ("crank_nicolson", SERIES_3, "^", "Crank\u2013Nicolson"),
+    ]
 
     fig, ax = plt.subplots(figsize=(7.0, 5.0))
-    ax.plot(dt, l2, marker="o", markersize=7, linewidth=2, color=SERIES_1,
-            zorder=3, markeredgecolor=SURFACE, markeredgewidth=1.5)
-    guide(ax, dt, l2, 1.0, "slope 1", offset=0.45)
+    anchors = {}
+    for key, color, marker, nice in order_of:
+        sc = t["schemes"][key]
+        dt = [p["dt"] for p in sc["points"]]
+        l2 = [p["l2"] for p in sc["points"]]
+        anchors[key] = (dt, l2)
+        # Explicit and backward Euler are both first order with nearly equal
+        # error constants, so their curves coincide. Draw explicit wider and
+        # underneath so it stays visible rather than being hidden entirely.
+        wide = (key == "explicit")
+        ax.plot(dt, l2, marker=marker, markersize=9 if wide else 7,
+                linewidth=5 if wide else 2, color=color,
+                zorder=2 if wide else 3,
+                markeredgecolor=SURFACE, markeredgewidth=1.5,
+                label=f"{nice}  (order {sc['fitted_order_l2']:.2f})")
+
+    guide(ax, *anchors["explicit"], 1.0, "slope 1", offset=0.35)
+    guide(ax, *anchors["crank_nicolson"], 2.0, "slope 2", offset=0.25)
 
     ax.set_xscale("log"); ax.set_yscale("log")
-    style(ax, f"Temporal convergence at fixed t* (forward Euler, order "
-              f"{t['fitted_order_l2']:.2f})",
+    style(ax, "Temporal convergence by scheme",
           "time step  \u0394t", "L\u2082 error vs fine-\u0394t reference")
+    leg = ax.legend(frameon=False, loc="center left")
+    for x in leg.get_texts():
+        x.set_color(INK_2)
     caption(fig,
-            f"Grid fixed at {t['N']}\u00d7{t['N']}; each solution advanced to "
-            f"t* = {t['t_star']:.2e} s and compared against\n"
-            f"a reference run with a 256\u00d7 smaller step.")
+            f"Grid fixed at {t['N']}\u00d7{t['N']}; each scheme advanced to t* = {t['t_star']:.2e} s and compared against a\n"
+            "reference computed with its own discretisation at a 256\u00d7 smaller step. Explicit and backward Euler\n"
+            "are both first order with nearly equal error constants, so their curves coincide \u2014 explicit is drawn\n"
+            "wider beneath. Crank\u2013Nicolson is second order: at equal \u0394t its error is ~2000\u00d7 smaller.")
     save(fig, "temporal_convergence")
+
+
+def fig_cost(d):
+    """Steps needed to reach steady state - the practical payoff of implicit."""
+    runs = d["cost"]["runs"]
+    labels = [r["label"] for r in runs]
+    steps = [r["steps"] for r in runs]
+    ypos = list(range(len(runs)))[::-1]
+
+    fig, ax = plt.subplots(figsize=(7.0, 4.2))
+    ax.barh(ypos, steps, height=0.6, color=SERIES_1, zorder=3)
+    for y, r in zip(ypos, runs):
+        ax.annotate(f"{r['steps']:,} steps   ({r['seconds']*1000:.0f} ms)",
+                    xy=(r["steps"], y), xytext=(8, 0), textcoords="offset points",
+                    va="center", color=INK_2, fontsize=9)
+
+    ax.set_yticks(ypos)
+    ax.set_yticklabels(labels)
+    ax.set_xlim(0, max(steps) * 1.45)
+    style(ax, "Cost to reach steady state", "time steps required", "")
+    ax.grid(False, axis="y")
+    caption(fig,
+            f"{d['cost']['N']}\u00d7{d['cost']['N']} grid, all runs converging to the same exact centre "
+            "temperature of 25 \u00b0C. The explicit scheme is\ncapped at F = 0.2 by stability; the implicit "
+            "schemes are not, and need roughly 20\u00d7 fewer steps. Each\nimplicit step costs more, so the "
+            "wall-clock times end up comparable at this grid size.")
+    save(fig, "cost")
 
 
 def fig_stability(d):
@@ -186,13 +234,16 @@ def main():
     print("Rendering figures...")
     fig_spatial(d)
     fig_temporal(d)
+    fig_cost(d)
     fig_stability(d)
 
     s = d["spatial"]["cases"]
     print("\nSummary")
     print(f"  spatial order (smooth)        {s['smooth']['fitted_order_l2']:.3f}   (theory 2)")
     print(f"  spatial order (discontinuous) {s['discontinuous']['fitted_order_l2']:.3f}   (corner-limited)")
-    print(f"  temporal order                {d['temporal']['fitted_order_l2']:.3f}   (theory 1)")
+    for k, nice, th in (("explicit", "explicit", 1), ("backward_euler", "backward Euler", 1),
+                        ("crank_nicolson", "Crank-Nicolson", 2)):
+        print(f"  temporal order ({nice:<14}) {d['temporal']['schemes'][k]['fitted_order_l2']:.3f}   (theory {th})")
     bad = [r["F"] for r in d["stability"]["runs"] if r["unstable"]]
     ok = [r["F"] for r in d["stability"]["runs"] if not r["unstable"]]
     print(f"  stable F                      {ok}")

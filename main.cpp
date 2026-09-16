@@ -11,7 +11,8 @@
 
 void exportToJSON(const std::string& filename, int step, int rows, int cols,
                   const std::vector<std::vector<double>>& grid,
-                  double dt, int saveInterval) {
+                  double dt, int saveInterval,
+                  const std::string& scheme, double diffusionNumber) {
     std::ofstream file(filename);
     file << "{\n";
     file << "  \"step\": " << step << ",\n";
@@ -20,6 +21,8 @@ void exportToJSON(const std::string& filename, int step, int rows, int cols,
     // dt is derived from the stability limit, so the UI cannot assume it.
     file << "  \"dt\": " << std::setprecision(10) << dt << ",\n";
     file << "  \"saveInterval\": " << saveInterval << ",\n";
+    file << "  \"scheme\": \"" << scheme << "\",\n";
+    file << "  \"F\": " << diffusionNumber << ",\n";
     file << "  \"data\": [\n";
     for (int i = 0; i < rows; ++i) {
         file << "    [";
@@ -48,6 +51,7 @@ int main(int argc, char* argv[]) {
     double leftTemp = 0.0;
     double rightTemp = 0.0;
     std::string mode = "fdm";
+    double F_TARGET = 0.2;
 
     // Heat sources. Trailing arguments are (row, col, temp) triples, one per
     // source, so any number of them can be passed. The API converts the UI's
@@ -64,7 +68,10 @@ int main(int argc, char* argv[]) {
         rightTemp = std::stod(argv[6]);
         if (argc >= 8) mode = argv[7];
         if (argc >= 9) ALPHA = std::stod(argv[8]);
-        for (int k = 9; k + 2 < argc; k += 3) {
+        // Diffusion number. The explicit scheme is only stable up to 0.25;
+        // the implicit schemes accept any positive value.
+        if (argc >= 10) F_TARGET = std::stod(argv[9]);
+        for (int k = 10; k + 2 < argc; k += 3) {
             sources.push_back({ std::stoi(argv[k]),
                                 std::stoi(argv[k + 1]),
                                 std::stod(argv[k + 2]) });
@@ -82,9 +89,30 @@ int main(int argc, char* argv[]) {
     // dt = 0.1 gave F = 0.001 at the default alpha, so an entire 10000-step
     // run advanced the solution only ~10% of the way to steady state and the
     // time slider appeared to do nothing.
-    const double F_TARGET = 0.2;
     if (ALPHA <= 0.0) ALPHA = 0.01;
+    if (!(F_TARGET > 0.0) || F_TARGET > 1000.0) F_TARGET = 0.2;
+
+    // Map the mode string onto a time-integration scheme.
+    HeatSimulation::Method method = HeatSimulation::Method::Explicit;
+    std::string methodName = "explicit (forward Euler)";
+    if (mode == "be" || mode == "backward-euler") {
+        method = HeatSimulation::Method::BackwardEuler;
+        methodName = "backward Euler (ADI)";
+    } else if (mode == "cn" || mode == "crank-nicolson") {
+        method = HeatSimulation::Method::CrankNicolson;
+        methodName = "Crank-Nicolson (ADI)";
+    }
+
+    if (method == HeatSimulation::Method::Explicit && F_TARGET > 0.25) {
+        std::cout << "Warning: F = " << F_TARGET
+                  << " exceeds the explicit stability limit of 0.25; "
+                     "the solution will diverge.\n";
+    }
+
     DT = F_TARGET * DX * DX / ALPHA;
+    if (mode != "pde") {
+        std::cout << "Scheme: " << methodName << "\n";
+    }
     std::cout << "Using dt = " << DT << " s (diffusion number F = "
               << F_TARGET << ")\n";
 
@@ -117,6 +145,7 @@ int main(int argc, char* argv[]) {
     }
 
     HeatSimulation sim(ROWS, COLS, ALPHA, DX, DT);
+    sim.setMethod(method);
     HeatDatabase db("heat_sim.db");
 
     if (!db.init()) return 1;
@@ -127,7 +156,8 @@ int main(int argc, char* argv[]) {
         db.beginRun();
         db.saveTimestep(0, sim.getGrid());
         db.endRun();
-        exportToJSON("latest_heatmap.json", 0, ROWS, COLS, sim.getGrid(), DT, 1);
+        exportToJSON("latest_heatmap.json", 0, ROWS, COLS, sim.getGrid(), DT, 1,
+                     "analytical", F_TARGET);
     } else {
         for (int j = 0; j < COLS; ++j) sim.setBoundary(0, j, topTemp);
         for (int j = 0; j < COLS; ++j) sim.setBoundary(ROWS - 1, j, bottomTemp);
@@ -168,7 +198,7 @@ int main(int argc, char* argv[]) {
 
         if (!db.endRun()) return 1;
         exportToJSON("latest_heatmap.json", finalStep, ROWS, COLS, sim.getGrid(),
-                     DT, SAVE_INTERVAL);
+                     DT, SAVE_INTERVAL, methodName, F_TARGET);
     }
 
     std::cout << "Simulation complete. Output written to latest_heatmap.json\n";

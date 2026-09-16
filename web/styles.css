@@ -625,3 +625,40 @@ th {
     font-weight: 600;
     cursor: pointer;
 }
+
+/* The heatmap responds to hover, so signal that it is inspectable. */
+#heatCanvas {
+    cursor: crosshair;
+}
+
+/* Cost comparison bars */
+.cost-row {
+    display: grid;
+    grid-template-columns: 210px 1fr 190px;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.cost-label { font-size: 0.85rem; color: var(--text-main); }
+
+.cost-track {
+    background: var(--accent-champagne);
+    border-radius: 6px;
+    height: 20px;
+    overflow: hidden;
+}
+
+.cost-fill {
+    background: #2a78d6;
+    height: 100%;
+    border-radius: 6px;
+}
+
+.cost-value {
+    font-size: 0.82rem;
+    color: var(--text-secondary, #52514e);
+    font-variant-numeric: tabular-nums;
+}
+
+.cost-ms { color: var(--text-muted); margin-left: 6px; }
