@@ -146,7 +146,7 @@ public:
         // Rows are independent: each writes only its own row of nextGrid and
         // reads only grid, so this parallelises without any synchronisation.
         #ifdef _OPENMP
-        #pragma omp parallel for schedule(static) reduction(max:maxDiff)
+        #pragma omp parallel for schedule(runtime) reduction(max:maxDiff)
         #endif
         for (int i = 0; i < rows; ++i) {
             for (int j = 0; j < cols; ++j) {
@@ -314,7 +314,7 @@ private:
 
         // --- sweep 1: implicit along x, one system per row ---
         #ifdef _OPENMP
-        #pragma omp for schedule(static)
+        #pragma omp for schedule(runtime)
         #endif
         for (int i = 0; i < rows; ++i) {
             for (int j = 0; j < cols; ++j) {
@@ -351,7 +351,7 @@ private:
 
         // --- sweep 2: implicit along y, one system per column ---
         #ifdef _OPENMP
-        #pragma omp for schedule(static)
+        #pragma omp for schedule(runtime)
         #endif
         for (int j = 0; j < cols; ++j) {
             for (int i = 0; i < rows; ++i) {
@@ -388,7 +388,7 @@ private:
 
         double maxDiff = 0.0;
         #ifdef _OPENMP
-        #pragma omp parallel for schedule(static) reduction(max:maxDiff)
+        #pragma omp parallel for schedule(runtime) reduction(max:maxDiff)
         #endif
         for (int i = 0; i < rows; ++i) {
             for (int j = 0; j < cols; ++j) {

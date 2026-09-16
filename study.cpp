@@ -584,8 +584,16 @@ int main() {
 
     bool firstScale = true;
     for (const ScaleCase& S : scaleCases) {
+        // Powers of two, plus the actual core count - doubling alone would
+        // skip a 10-core machine's most interesting data point.
+        std::vector<int> threadCounts;
+        for (int th = 1; th <= maxThreads; th *= 2) threadCounts.push_back(th);
+        if (threadCounts.empty() || threadCounts.back() != maxThreads) {
+            threadCounts.push_back(maxThreads);
+        }
+
         double serialTime = 0.0;
-        for (int th = 1; th <= maxThreads; th *= 2) {
+        for (int th : threadCounts) {
 #ifdef _OPENMP
             omp_set_num_threads(th);
 #endif

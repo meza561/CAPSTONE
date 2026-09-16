@@ -262,14 +262,46 @@ Apple's clang does not ship it. To enable it on macOS:
 brew install libomp
 ```
 
-Measured on 2 cores (`./run_study.sh` reports this for your own machine):
+Measured on an Apple Silicon Mac, 10 hardware threads (`./run_study.sh`
+reports this for whatever machine it runs on):
 
-| Grid | Scheme | Threads | Speedup | Efficiency |
+| Grid | Scheme | 2 threads | 4 threads | 8 threads |
 |---|---|---|---|---|
-| 256 | explicit | 2 | 1.99x | 99% |
-| 256 | Crank-Nicolson | 2 | 1.88x | 94% |
-| 512 | explicit | 2 | 1.90x | 95% |
-| 512 | Crank-Nicolson | 2 | 1.86x | 93% |
+| 256 | explicit | 1.65x | 1.90x | 1.39x |
+| 256 | Crank-Nicolson | 1.85x | 3.26x | 2.68x |
+| 512 | explicit | 1.94x | 2.85x | 2.72x |
+| 512 | Crank-Nicolson | 1.91x | **3.64x** | **4.25x** |
+
+Three things in that table are worth more than the headline number.
+
+**Speedup peaks at four threads and then falls back** in three of the four
+cases. Two effects combine. The machine has heterogeneous cores - performance
+and efficiency - so once the thread count exceeds the performance-core count,
+statically scheduled work lands on slower cores and the fast ones wait at the
+barrier. On top of that a five-point stencil moves a lot of memory per
+arithmetic operation, so bandwidth saturates early. More threads stop helping
+well before the core count is exhausted.
+
+**Crank-Nicolson scales better than the explicit scheme** - 4.25x against 2.85x
+at 512. The implicit step does more arithmetic per byte moved (a tridiagonal
+solve rather than a single stencil pass), so it is further from the bandwidth
+limit and has more headroom to parallelise. The cheaper kernel is the harder
+one to speed up, which is the opposite of the intuition that cheap work
+parallelises well.
+
+**Bigger grids scale better** - 512 beats 256 everywhere - because there is more
+work per thread to amortise the fork/join overhead.
+
+The loops use `schedule(runtime)`, so scheduling can be compared without
+recompiling:
+
+```bash
+OMP_SCHEDULE=guided ./run_study.sh      # or dynamic,4 - default is static
+```
+
+On heterogeneous cores a dynamic or guided schedule can recover some of the
+loss at high thread counts, since fast cores take more chunks instead of
+waiting. Output is bit-identical under every schedule.
 
 ## API Endpoints
 - `GET /`: Serves the frontend.

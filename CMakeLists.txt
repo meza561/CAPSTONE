@@ -13,7 +13,7 @@ find_package(SQLite3 REQUIRED)
 # OpenMP is optional. Apple's clang does not ship it, so the build must work
 # without it - the pragmas are simply ignored and everything runs serially.
 # On macOS: brew install libomp
-find_package(OpenMP)
+find_package(OpenMP COMPONENTS CXX)
 
 # Apple's clang ships without OpenMP, and even with Homebrew's libomp
 # installed CMake will not find it: the compiler needs -Xpreprocessor and the
@@ -33,7 +33,7 @@ if(APPLE AND NOT OpenMP_CXX_FOUND)
         else()
             set(OpenMP_omp_LIBRARY "${LIBOMP_PREFIX}/lib/libomp.a")
         endif()
-        find_package(OpenMP)
+        find_package(OpenMP COMPONENTS CXX)
     endif()
 endif()
 
