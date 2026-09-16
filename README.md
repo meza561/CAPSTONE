@@ -265,12 +265,12 @@ brew install libomp
 Measured on an Apple Silicon Mac, 10 hardware threads (`./run_study.sh`
 reports this for whatever machine it runs on):
 
-| Grid | Scheme | 2 threads | 4 threads | 8 threads |
-|---|---|---|---|---|
-| 256 | explicit | 1.65x | 1.90x | 1.39x |
-| 256 | Crank-Nicolson | 1.85x | 3.26x | 2.68x |
-| 512 | explicit | 1.94x | 2.85x | 2.72x |
-| 512 | Crank-Nicolson | 1.91x | **3.64x** | **4.25x** |
+| Grid | Scheme | 2 | 4 | 8 | 10 threads |
+|---|---|---|---|---|---|
+| 256 | explicit | 1.44x | 1.89x | 1.26x | 1.07x |
+| 256 | Crank-Nicolson | 1.84x | 3.09x | 2.47x | 2.00x |
+| 512 | explicit | 1.76x | 2.76x | 2.78x | 2.78x |
+| 512 | Crank-Nicolson | 1.97x | 3.75x | 4.61x | **4.70x** |
 
 Three things in that table are worth more than the headline number.
 
@@ -290,7 +290,15 @@ one to speed up, which is the opposite of the intuition that cheap work
 parallelises well.
 
 **Bigger grids scale better** - 512 beats 256 everywhere - because there is more
-work per thread to amortise the fork/join overhead.
+work per thread to amortise the fork/join overhead. At 256 with 10 threads the
+explicit scheme manages only 1.07x: each thread gets so little work that the
+per-step barrier costs about as much as the work itself.
+
+The cleanest single result is the 512 explicit row. It measures 0.0156, 0.0155
+and 0.0155 seconds at 4, 8 and 10 threads - **identical to three digits**. Once
+memory bandwidth is saturated, additional cores do not merely help less, they
+do nothing at all. The implicit scheme keeps climbing past that point because
+it performs more arithmetic per byte moved.
 
 The loops use `schedule(runtime)`, so scheduling can be compared without
 recompiling:
@@ -299,9 +307,15 @@ recompiling:
 OMP_SCHEDULE=guided ./run_study.sh      # or dynamic,4 - default is static
 ```
 
-On heterogeneous cores a dynamic or guided schedule can recover some of the
-loss at high thread counts, since fast cores take more chunks instead of
-waiting. Output is bit-identical under every schedule.
+Measured, `guided` does **not** help here. Against `static` it was within noise
+on the 512 grid (4.61x vs 4.25x at 8 threads) and slightly worse on 256 (2.47x
+vs 2.68x). The plausible reason a dynamic schedule would help - fast cores
+taking extra chunks instead of idling at the barrier - is not what limits this
+workload; memory bandwidth is. Output is bit-identical under every schedule, so
+the comparison is safe to run.
+
+Run-to-run variation is a few percent, so take a median of several runs before
+quoting any figure.
 
 ## API Endpoints
 - `GET /`: Serves the frontend.
