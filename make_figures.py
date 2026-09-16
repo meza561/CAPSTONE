@@ -265,10 +265,11 @@ def fig_scaling(d):
             t.set_color(INK_2)
 
     caption(fig,
-            f"Strong scaling on {sc['max_threads']} hardware threads. Rows of the explicit update and "
-            f"each ADI grid line are\nindependent, so neither needs synchronisation; serial and parallel "
-            f"output is bit-identical. A stencil this\ncheap is memory-bandwidth bound, so efficiency "
-            f"falls off as threads are added.")
+            f"Strong scaling on {sc['max_threads']} hardware threads. Rows of the explicit update and each ADI grid "
+            f"line are\nindependent, so neither needs synchronisation, and serial and parallel output is "
+            f"bit-identical.\nPoints marginally above the ideal line are timing noise, not superlinear "
+            f"speedup. A stencil this cheap is\nmemory-bandwidth bound, so expect efficiency to fall away "
+            f"once the core count is high enough to saturate it.")
     save(fig, "scaling")
 
 
