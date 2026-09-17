@@ -18,14 +18,17 @@
             <p>Configure boundary temperatures and visualize the heat spread in real-time.</p>
         </header>
 
-        <nav class="nav-tabs">
-            <button class="tab-btn active" data-tab="sim-tab">Simulation</button>
-            <button class="tab-btn" data-tab="history-tab">History</button>
-            <button class="tab-btn" data-tab="validation-tab">Validation</button>
+        <nav class="nav-tabs" role="tablist" aria-label="Views">
+            <button class="tab-btn active" id="tab-sim" data-tab="sim-tab"
+                    role="tab" aria-selected="true" aria-controls="sim-tab">Simulation</button>
+            <button class="tab-btn" id="tab-history" data-tab="history-tab"
+                    role="tab" aria-selected="false" aria-controls="history-tab">History</button>
+            <button class="tab-btn" id="tab-validation" data-tab="validation-tab"
+                    role="tab" aria-selected="false" aria-controls="validation-tab">Validation</button>
         </nav>
 
         <main class="dashboard-container">
-            <div class="main-layout" id="sim-tab">
+            <div class="main-layout" id="sim-tab" role="tabpanel" aria-labelledby="tab-sim">
                 <section class="panel controls-panel">
                     <h2 class="panel-title">Simulation Parameters</h2>
                     
@@ -209,6 +212,11 @@
                         <canvas id="heatCanvas"></canvas>
                     </div>
 
+                    <!-- The plate is a canvas, so a screen reader gets nothing
+                         from it and the hover readout is mouse-only. This
+                         announces what a run produced: field, size and range. -->
+                    <p id="fieldSummary" class="sr-inline" role="status"></p>
+
                     <!-- Key and time controls sit directly under the plate, so
                          the field stays in view while the timeline is dragged.
                          The gradient is generated from the same function that
@@ -248,10 +256,20 @@
                             <span id="sliderMaxLabel">end</span>
                         </div>
                     </div>
+
+                    <!-- Text alternative to the plate: the hover readout needs
+                         a mouse, so this is the only way to read cell values
+                         from the keyboard or a screen reader. -->
+                    <details class="data-details field-table">
+                        <summary>Field values as a table</summary>
+                        <div class="table-responsive" id="field-table">
+                            <p class="src-empty">Run a simulation to fill this in.</p>
+                        </div>
+                    </details>
                 </section>
             </div>
 
-            <div class="main-layout hidden" id="history-tab">
+            <div class="main-layout hidden" id="history-tab" role="tabpanel" aria-labelledby="tab-history">
                 <section class="panel history-panel">
                     <h2 class="panel-title">Simulation History</h2>
                     <div class="table-responsive">
@@ -271,7 +289,7 @@
                     <button id="clearHistoryBtn" class="secondary-btn">Clear History</button>
                 </section>
             </div>
-            <div class="main-layout hidden" id="validation-tab">
+            <div class="main-layout hidden" id="validation-tab" role="tabpanel" aria-labelledby="tab-validation">
                 <section class="panel validation-panel">
                     <h2 class="panel-title">Numerical Validation</h2>
                     <p class="panel-note">

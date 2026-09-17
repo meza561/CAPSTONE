@@ -39,6 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const sliderMinLabel = document.getElementById('sliderMinLabel');
     const sliderMaxLabel = document.getElementById('sliderMaxLabel');
     const gradientBar  = document.getElementById('gradientBar');
+    const fieldSummary = document.getElementById('fieldSummary');
+    const fieldTable   = document.getElementById('field-table');
     const colorMapSel  = document.getElementById('colorMap');
     const autoScaleBox = document.getElementById('autoScale');
 
@@ -57,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // concentrations, not temperatures, so labelling them degrees Celsius is
     // simply wrong.
     let fieldUnit = '°C';
+    let fieldLabel = 'Temperature';
     // Fixed colour range for the run. Rescaling every frame to its own
     // min/max made a cooling plate look identical at every instant, which is
     // the opposite of what the timeline is for.
@@ -464,6 +467,10 @@ document.addEventListener('DOMContentLoaded', () => {
         timeVal.textContent = 't = ' + fmtTime(step * simDt);
         frameVal.textContent =
             `frame ${idx + 1} of ${frameSteps.length} — step ${step}`;
+        // Without this the slider announces its raw index ("23"), which says
+        // nothing about the frame it is showing.
+        timeSlider.setAttribute('aria-valuetext',
+            `${timeVal.textContent}, frame ${idx + 1} of ${frameSteps.length}`);
     }
 
     /**
@@ -553,8 +560,12 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.addEventListener('click', () => {
             // Playback keeps fetching frames it can no longer show.
             if (btn.dataset.tab !== 'sim-tab') stopPlay();
-            tabBtns.forEach(b => b.classList.remove('active'));
+            tabBtns.forEach(b => {
+                b.classList.remove('active');
+                b.setAttribute('aria-selected', 'false');
+            });
             btn.classList.add('active');
+            btn.setAttribute('aria-selected', 'true');
             
             Object.keys(tabs).forEach(id => {
                 tabs[id].classList.toggle('hidden', id !== btn.dataset.tab);
@@ -633,6 +644,35 @@ document.addEventListener('DOMContentLoaded', () => {
         return { min: min, max: max };
     }
 
+    /**
+     * Text alternative to the canvas, in the same (x, y) bottom-left terms the
+     * hover readout uses. Large grids are sampled rather than dumped: 300x300
+     * is 90,000 cells, which is not a table anyone can read.
+     */
+    const TABLE_SAMPLES = 12;
+
+    function renderFieldTable(field) {
+        const { rows, cols, data: g } = field;
+        const stepR = Math.ceil(rows / TABLE_SAMPLES);
+        const stepC = Math.ceil(cols / TABLE_SAMPLES);
+        const rIdx = [], cIdx = [];
+        for (let i = 0; i < rows; i += stepR) rIdx.push(i);
+        for (let j = 0; j < cols; j += stepC) cIdx.push(j);
+
+        const head = '<tr><th scope="col">y \\ x</th>'
+            + cIdx.map(j => `<th scope="col">${j}</th>`).join('') + '</tr>';
+        const body = rIdx.map(i =>
+            `<tr><th scope="row">${(rows - 1) - i}</th>`
+            + cIdx.map(j => `<td>${fmtValue(g[i][j])}</td>`).join('') + '</tr>').join('');
+        const sampled = (stepR > 1 || stepC > 1)
+            ? ` Sampled every ${stepR} rows and ${stepC} columns of ${rows}x${cols}.` : '';
+
+        fieldTable.innerHTML =
+            `<table class="data-table"><caption>${fieldLabel} by (x, y), `
+            + `origin bottom-left.${sampled}</caption>`
+            + `<thead>${head}</thead><tbody>${body}</tbody></table>`;
+    }
+
     function drawHeatmap(data) {
         currentField = data;
         const { rows, cols, data: grid } = data;
@@ -673,6 +713,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         ctx.putImageData(imageData, 0, 0);
+        renderFieldTable(data);
     }
 
     async function runSimulation() {
@@ -709,6 +750,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rdMode = inputs.mode.value === 'fisher' ? 'u'
                      : (inputs.mode.value === 'gray-scott' ? 'v' : null);
         fieldUnit = rdMode ? ' ' + rdMode : '°C';
+        fieldLabel = rdMode ? 'Concentration ' + rdMode : 'Temperature';
         timeSuffix = rdMode ? '' : ' s';
 
         try {
@@ -772,6 +814,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             setStatus(msg);
+
+            // Announced to screen readers, which get nothing from the canvas.
+            // Only on a completed run, not per frame: scrubbing the timeline
+            // would otherwise fire this on every frame.
+            fieldSummary.textContent =
+                `${fieldLabel} field, `
+                + `${heatmapData.rows} by ${heatmapData.cols} cells, `
+                + `ranging from ${fmtValue(scaleRange.min)} to ${fmtValue(scaleRange.max)}. `
+                + msg;
 
             if (inputs.mode.value !== 'pde') {
                 timeCtrl.classList.remove('hidden');

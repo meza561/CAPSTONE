@@ -17,9 +17,17 @@
     --bg-champagne: #F8E7C9;
     --accent-champagne: #efe0bb;
     --text-main: #1a2e26;
-    --text-muted: #5a6d65;
+    /* Darkened from #5a6d65, which fell to 4.21:1 on --accent-champagne (the
+       nav bar, stat tiles and study status) - under the 4.5:1 AA floor for
+       body text. Now 4.81:1 there and 6.29:1 on white. */
+    --text-muted: #52645c;
     --panel-bg: #ffffff;
     --border-color: #d1c7b3;
+    /* The boundary of a form control has to reach 3:1 (SC 1.4.11); the
+       decorative --border-color above is 1.68:1 on white. Only controls use
+       this, so panel edges and table rules keep their light hairlines - 1.4.11
+       does not apply to those. */
+    --border-control: #968871;
     --shadow: 0 8px 30px rgba(0,0,0,0.08);
     --radius: 12px;
 }
@@ -176,7 +184,7 @@ body {
 
 input[type="number"] {
     padding: 10px;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-control);
     border-radius: 8px;
     font-size: 1rem;
     transition: border-color 0.2s;
@@ -185,8 +193,11 @@ input[type="number"] {
     box-sizing: border-box;
 }
 
+/* A border-colour change alone was the only focus signal here, and it is easy
+   to miss; every other control in the app keeps the browser's default ring. */
 input[type="number"]:focus {
-    outline: none;
+    outline: 2px solid var(--primary-emerald);
+    outline-offset: 1px;
     border-color: var(--primary-emerald);
     background: white;
 }
@@ -255,6 +266,10 @@ input[type="number"]:focus {
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
+    /* As a grid item this defaults to min-width: auto, so the widest child
+       sizes the panel: the value table stretched it (and the page) past the
+       viewport instead of scrolling in its own box. */
+    min-width: 0;
 }
 
 /* The parameter column is much taller than the plate. Pinning the
@@ -335,7 +350,7 @@ canvas {
 
 .mini-select {
     padding: 5px 8px;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-control);
     border-radius: 7px;
     background: #fafafa;
     font-size: 0.8rem;
@@ -421,6 +436,16 @@ canvas {
     font-variant-numeric: tabular-nums;
 }
 
+/* Sized like the timeline above it. min-width: 0 matters: as a flex item of
+   .visualization-panel it defaults to min-width: auto, so a wide value table
+   stretched the panel (and the page) instead of scrolling inside its own box. */
+.field-table {
+    width: 100%;
+    max-width: 500px;
+    min-width: 0;
+    margin-top: 16px;
+}
+
 .status-display.is-error {
     background: #fbe9e7;
     color: #b3261e;
@@ -493,6 +518,31 @@ th {
 @media (max-width: 900px) {
     .main-layout {
         grid-template-columns: 1fr;
+    }
+
+    /* Finger-sized targets on touch layouts: 38px and 37px tall on a phone is
+       under the 44px guideline. Desktop keeps the tighter sizing. */
+    .play-btn {
+        width: 44px;
+        height: 44px;
+    }
+
+    .tab-btn {
+        padding: 14px 24px;
+    }
+
+    /* The checkbox itself stays 13px, but the label wrapping it is the target,
+       so giving the label the height gives the tap area without resizing any
+       control. Adds a little vertical space to the parameter column. */
+    .ins-toggle,
+    .scale-toggle {
+        min-height: 44px;
+    }
+
+    /* Taller hit area for the thumb; the track is drawn centred, so the
+       slider looks the same. */
+    .slider {
+        height: 44px;
     }
 
     /* One column, so the visualisation panel comes first - otherwise the
@@ -760,7 +810,7 @@ th {
     padding: 11px 16px;
     background-color: transparent;
     color: var(--primary-emerald);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-control);
     border-radius: 8px;
     font-size: 0.9rem;
     font-weight: 600;

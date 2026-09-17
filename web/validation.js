@@ -14,7 +14,7 @@
         bad: '#e34948',  // red    - unstable
         ink: '#0b0b0b',
         ink2: '#52514e',
-        muted: '#898781',
+        muted: '#726f69',
         grid: '#e1e0d9',
         axis: '#c3c2b7',
         surface: '#ffffff'

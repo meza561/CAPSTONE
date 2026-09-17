@@ -34,6 +34,12 @@ test('layout has no horizontal overflow at a narrow viewport', async ({ page }) 
   await runSimulation(page, { mode: 'fdm', rows: 24, cols: 160 }); // wide, non-square
   await expectNoHorizontalOverflow(page, 'after a wide non-square run');
 
+  // The canvas's text alternative is a wide table; it has to scroll inside its
+  // own box rather than push the page sideways.
+  await page.locator('.field-table summary').click();
+  await expect(page.locator('#field-table table')).toBeVisible();
+  await expectNoHorizontalOverflow(page, 'field value table expanded');
+
   await page.locator('.tab-btn[data-tab="history-tab"]').click();
   await expectNoHorizontalOverflow(page, 'history tab');
 
@@ -42,7 +48,7 @@ test('layout has no horizontal overflow at a narrow viewport', async ({ page }) 
   expect(await page.locator('.cost-row').count()).toBeGreaterThan(0);
   await expectNoHorizontalOverflow(page, 'validation tab');
 
-  await page.locator('.data-details summary').click();
+  await page.locator('#validation-tab .data-details summary').click();
   await expect(page.locator('#study-tables table').first()).toBeVisible();
   await expectNoHorizontalOverflow(page, 'validation tab, underlying numbers expanded');
 });
