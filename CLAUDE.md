@@ -61,4 +61,4 @@ Two constraints in the UI suite that are easy to undo by accident:
 
 ## Project structure
 
-See `README.md`'s "Project Structure" section and its "API Endpoints" section for the `/run` payload shape — both are detailed; don't duplicate them here. Its file list predates `tests/api/`, `tests/ui/` and `run_ui_tests.sh`, though, so those are described above instead.
+See `README.md`'s "Project Structure" section and its "API Endpoints" section for the `/run` payload shape — both are current and detailed; don't duplicate them here.
