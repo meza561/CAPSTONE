@@ -9,6 +9,7 @@ cmake-build-debug/
 venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
 
 # Logs and Data
 server.log
