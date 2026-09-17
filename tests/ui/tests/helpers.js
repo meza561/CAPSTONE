@@ -233,7 +233,6 @@ function paintedRect(box, rows, cols) {
 }
 
 module.exports = {
-  DEFAULTS,
   runSimulation,
   setSources,
   setMaterials,

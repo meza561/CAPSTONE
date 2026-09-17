@@ -47,34 +47,18 @@ public:
     }
 
     void setMethod(Method m) { method = m; }
-    Method getMethod() const { return method; }
 
     /**
-     * Per-cell diffusivity. With a non-uniform alpha the governing equation is
-     * the divergence form
+     * Fill an axis-aligned rectangle (inclusive) with a diffusivity.
+     *
+     * With a non-uniform alpha the governing equation is the divergence form
      *
      *     du/dt = div( alpha(x,y) grad u )
      *
      * not alpha * lap(u): the latter is only equivalent when alpha is
-     * constant, and gets the flux wrong across a material interface.
-     * Conductivity at a face is the HARMONIC mean of the two adjacent cells,
-     * which is the standard treatment for a discontinuous coefficient - it
-     * reproduces series resistance exactly, where an arithmetic mean does not.
+     * constant, and gets the flux wrong across a material interface. See
+     * faceAlpha for the harmonic mean that follows from it.
      */
-    void setAlphaField(const std::vector<std::vector<double>>& f) {
-        if (static_cast<int>(f.size()) != rows) return;
-        alphaField = f;
-        heterogeneous = true;
-    }
-
-    void setAlphaAt(int i, int j, double a) {
-        if (i < 0 || i >= rows || j < 0 || j >= cols || a <= 0.0) return;
-        ensureAlphaField();
-        alphaField[i][j] = a;
-        heterogeneous = true;
-    }
-
-    /** Fill an axis-aligned rectangle (inclusive) with a diffusivity. */
     void setAlphaRegion(int i0, int j0, int i1, int j1, double a) {
         if (a <= 0.0) return;
         ensureAlphaField();
@@ -107,7 +91,6 @@ public:
 
     /** Set a cell's value. On an insulated edge this is an initial condition
      *  rather than a boundary condition, since such cells are not pinned. */
-    void setInitial(int r, int c, double value) { setBoundary(r, c, value); }
 
     void setBoundary(int r, int c, double temp) {
         if (r >= 0 && r < rows && c >= 0 && c < cols) {
@@ -229,8 +212,6 @@ public:
     }
 
     const std::vector<std::vector<double>>& getGrid() const { return grid; }
-    int getRows() const { return rows; }
-    int getCols() const { return cols; }
 
 private:
     // Cells whose value is imposed rather than solved for: the Dirichlet

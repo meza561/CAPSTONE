@@ -59,7 +59,6 @@ public:
      * the discrete wave outruns the continuum speed.
      */
     void setSpacing(double dx_) { if (dx_ > 0.0) dx = dx_; }
-    double spacing() const { return dx; }
 
     /** Left-edge strip of occupied habitat; the front then travels right. */
     void seedFisher(int stripWidth = 3) {
@@ -146,7 +145,6 @@ public:
      * activator v for Gray-Scott, which is the species the patterns live in.
      */
     const Grid& field() const { return (model == Model::GrayScott) ? v : u; }
-    const Grid& fieldU() const { return u; }
 
     /**
      * Physical x where the Fisher front crosses u = 1/2 along the middle row,
@@ -164,9 +162,6 @@ public:
         }
         return -1.0;
     }
-
-    int getRows() const { return rows; }
-    int getCols() const { return cols; }
 
 private:
     static double clamp01(double x) { return x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x); }

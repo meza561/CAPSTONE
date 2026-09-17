@@ -57,7 +57,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // concentrations, not temperatures, so labelling them degrees Celsius is
     // simply wrong.
     let fieldUnit = '°C';
-    let fieldName = 'Temperature';
     // Fixed colour range for the run. Rescaling every frame to its own
     // min/max made a cooling plate look identical at every instant, which is
     // the opposite of what the timeline is for.
@@ -710,7 +709,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const rdMode = inputs.mode.value === 'fisher' ? 'u'
                      : (inputs.mode.value === 'gray-scott' ? 'v' : null);
         fieldUnit = rdMode ? ' ' + rdMode : '°C';
-        fieldName = rdMode ? 'Concentration ' + rdMode : 'Temperature';
         timeSuffix = rdMode ? '' : ' s';
 
         try {

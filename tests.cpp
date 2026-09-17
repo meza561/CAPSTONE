@@ -262,7 +262,7 @@ void testEnergyConservation() {
         s.setMethod(ms[k]);
         s.setInsulatedEdges(true,true,true,true);
         for (int i=0;i<N;++i) for (int j=0;j<N;++j)
-            s.setInitial(i,j,(i<N/2 && j<N/2) ? 100.0 : 0.0);
+            s.setBoundary(i,j,(i<N/2 && j<N/2) ? 100.0 : 0.0);
         const double e0 = s.totalEnergy();
         for (int t=0;t<2000;++t) s.step();
         const double drift = std::fabs(s.totalEnergy()-e0)/e0;
