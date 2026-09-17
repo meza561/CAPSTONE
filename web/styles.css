@@ -96,6 +96,12 @@ body {
     border-radius: var(--radius);
     box-shadow: var(--shadow);
     border: 1px solid var(--border-color);
+    /* .history-panel/.validation-panel set width: 100% to fill their
+       container; without border-box that 100% is the content box alone, and
+       this panel's own padding+border then add on top of it, overflowing the
+       container by ~66px. Invisible on a wide desktop layout's slack, fatal
+       at phone width. */
+    box-sizing: border-box;
 }
 
 .panel-title {

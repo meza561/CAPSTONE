@@ -27,3 +27,9 @@ latest_heatmap.json
 study_results.json
 study_*.csv
 figures/
+
+# UI end-to-end test tooling (tests/ui/)
+tests/ui/node_modules/
+tests/ui/test-results/
+tests/ui/playwright-report/
+tests/ui/playwright/.cache/
