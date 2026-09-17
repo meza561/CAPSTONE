@@ -83,12 +83,15 @@ def test_get_run_without_stored_data(client):
 
 
 def test_get_run_snaps_down_to_the_nearest_stored_frame(client):
-    seed_db({0: [[0.0, 1.0]], 10: [[10.0, 11.0]], 20: [[20.0, 21.0]]})
+    # More than one row, so a transposed or off-by-one rebuild shows up here.
+    seed_db({0: [[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]],
+             10: [[10.0, 11.0, 12.0], [13.0, 14.0, 15.0]],
+             20: [[20.0, 21.0, 22.0], [23.0, 24.0, 25.0]]})
 
     body = client.get('/run?time=15').get_json()
     assert body['step'] == 10
-    assert body['data'] == [[10.0, 11.0]]
-    assert (body['rows'], body['cols']) == (1, 2)
+    assert body['data'] == [[10.0, 11.0, 12.0], [13.0, 14.0, 15.0]]
+    assert (body['rows'], body['cols']) == (2, 3)
 
     # An exact hit returns that frame, not the one before it.
     assert client.get('/run?time=20').get_json()['step'] == 20
@@ -100,28 +103,21 @@ def test_get_run_falls_back_to_the_earliest_frame(client):
     assert client.get('/run?time=5').get_json()['step'] == 10
 
 
-def test_get_run_rebuilds_the_grid_shape(client):
-    seed_db({0: [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]})
-    body = client.get('/run?time=0').get_json()
-    assert (body['rows'], body['cols']) == (2, 3)
-    assert body['data'] == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
-
-
 # ---- POST /run --------------------------------------------------------
 
-def fake_run(recorder, stdout='done\n'):
+def fake_run(recorder):
     """A subprocess.run stand-in that records argv instead of executing."""
     def run(cmd, **kwargs):
         recorder.append(cmd)
-        return types.SimpleNamespace(stdout=stdout, stderr='', returncode=0)
+        return types.SimpleNamespace(stdout='done\n', stderr='', returncode=0)
     return run
 
 
-def write_heatmap(payload=None):
+def write_heatmap():
     """The output file the binary would have written, which the route reads."""
     with open('latest_heatmap.json', 'w') as f:
-        json.dump(payload or {'step': 5, 'rows': 1, 'cols': 1, 'dt': 20.0,
-                              'saveInterval': 10, 'data': [[1.0]]}, f)
+        json.dump({'step': 5, 'rows': 1, 'cols': 1, 'dt': 20.0,
+                   'saveInterval': 10, 'data': [[1.0]]}, f)
 
 
 def test_post_run_success(client, monkeypatch):

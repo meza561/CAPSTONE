@@ -1,12 +1,12 @@
 // @ts-check
-const { defineConfig, devices } = require('@playwright/test');
+const { defineConfig } = require('@playwright/test');
 
 // The suite is driven against a server that run_ui_tests.sh (or CI) starts
 // separately - this config never launches the app itself, since building and
 // starting it needs the C++ binary compiled first.
 module.exports = defineConfig({
   testDir: './tests',
-  timeout: 30_000,
+  // Not the default 5s: a run has to launch the solver and come back.
   expect: { timeout: 15_000 },
   // server.py is explicitly single-writer (one DB file, one latest_heatmap.json,
   // guarded on the write side by SIM_LOCK - see CLAUDE.md). A GET made after this
@@ -14,7 +14,6 @@ module.exports = defineConfig({
   // between them, so tests run serially against the one server instance rather
   // than in parallel workers.
   workers: 1,
-  forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
@@ -22,7 +21,4 @@ module.exports = defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-  ],
 });
