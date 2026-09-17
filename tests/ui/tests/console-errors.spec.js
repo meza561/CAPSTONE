@@ -42,6 +42,13 @@ test('no console errors across a full run of all six modes', async ({ page }) =>
 
   await page.locator('.tab-btn[data-tab="history-tab"]').click();
   await page.locator('.tab-btn[data-tab="validation-tab"]').click();
+  // Wait for /study to settle before moving on. Clicking straight through let
+  // a console error from that fetch land after the assertion below. Either
+  // end state is fine: charts rendered, or the "run ./run_study.sh" message
+  // (always the case in CI, which never generates study_results.json).
+  await expect(
+    page.locator('#study-content:not(.hidden), #study-status:has-text("run_study.sh")'),
+  ).toBeVisible();
   await page.locator('.tab-btn[data-tab="sim-tab"]').click();
 
   expect(errors).toEqual([]);

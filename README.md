@@ -340,7 +340,7 @@ quoting any figure.
   - On failure, `message` carries the solver's actual stderr.
 - `GET /run?time=X`: Retrieves the stored state at timestep X, snapping down to the nearest saved frame.
 - `GET /frames`: Lists the step numbers stored for the current run, so the timeline can address exact frames instead of guessing them from the save interval.
-- `GET /study`: Returns the convergence/stability results, or 404 if `./run_study.sh` has not been run.
+- `GET /study`: Returns the convergence/stability results, or `{"status": "missing", "message": ...}` (still 200) if `./run_study.sh` has not been run.
 
 **Fisher-KPP front speed.** Measured against the exact $c^* = 2\sqrt{Dr}$ for
 $D = 0.2$, $r = 1$ (so $c^* = 0.89443$), over successive time windows:

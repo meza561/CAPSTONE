@@ -237,6 +237,7 @@
                 throw new Error(err.message || 'Could not load study results');
             }
             d = await res.json();
+            if (d.status === 'missing') throw new Error(d.message || 'No study results found.');
         } catch (e) {
             status.innerHTML = `${e.message}<br><span class="muted">Run <code>./run_study.sh</code> to generate them.</span>`;
             return;

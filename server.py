@@ -103,10 +103,13 @@ def study():
     """Serve the convergence/stability results produced by ./run_study.sh."""
     path = 'study_results.json'
     if not os.path.exists(path):
+        # 200, not 404: "not generated yet" is the normal state of a fresh
+        # checkout (the file is a gitignored ./run_study.sh output), and the
+        # browser logs every non-2xx fetch as a console error.
         return jsonify({
-            "status": "error",
+            "status": "missing",
             "message": "No study results found."
-        }), 404
+        })
     try:
         with open(path) as f:
             return jsonify(json.load(f))
