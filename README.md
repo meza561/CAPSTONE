@@ -16,6 +16,7 @@ equation.
 - Python 3.x
 - SQLite3
 - OpenMP *(optional — enables parallel step loops; `brew install libomp` on macOS)*
+- Node.js *(optional — only to run the frontend end-to-end tests)*
 - CMake *(optional — `start.sh` finds CLion's bundled copy, and falls back to compiling directly if no CMake is installed)*
 
 ### Quick Start
@@ -231,9 +232,16 @@ The analytical solver matches to machine precision; FDM converges to within
 
 ## Testing
 
+Three suites, one per layer, all three run in CI on every push
+(`.github/workflows/ci.yml`):
+
 ```bash
-./run_tests.sh
+./run_tests.sh                            # physics (C++)
+venv/bin/python -m pytest tests/api -q    # Flask API (pytest, ~0.03s)
+./run_ui_tests.sh                         # frontend end to end (Playwright)
 ```
+
+### Physics
 
 36 assertions covering every value theory fixes independently of the code:
 exact analytical temperatures, the mean-value property, rotational symmetry,
@@ -243,11 +251,43 @@ F = 500, series resistance through a composite slab, energy conservation in a
 sealed domain, the Fisher-KPP wave speed, and Gray-Scott pattern formation with
 a dead-regime negative control. Exits non-zero on failure.
 
-It runs in CI on every push (`.github/workflows/ci.yml`). This is cheap
-insurance: two silent correctness bugs got through during development - an
-analytical solver that was wrong for every configuration except a single hot
-edge, and a convergence test that could never fire when a heat source was
-present. Both would have been caught by these assertions.
+This is cheap insurance: two silent correctness bugs got through during
+development - an analytical solver that was wrong for every configuration
+except a single hot edge, and a convergence test that could never fire when a
+heat source was present. Both would have been caught by these assertions.
+
+### API
+
+```bash
+venv/bin/pip install -r requirements-test.txt   # once
+venv/bin/python -m pytest tests/api -q
+```
+
+36 tests over the Flask layer in isolation, using Flask's test client: the
+clamping of client-supplied values, `/frames`, `GET /run?time=` snapping down
+to the nearest stored frame, and `POST /run`'s error branches with
+`subprocess.run` mocked - a solver that times out, one that is missing, one
+that exits non-zero. It also pins the argv the API builds, including the
+bottom-left `(x, y)` to `[row][col]` flip. No server and no compiled binary,
+so the whole suite runs in hundredths of a second.
+
+### Frontend
+
+```bash
+./run_ui_tests.sh          # PORT=5577 ./run_ui_tests.sh to avoid a running dev server
+```
+
+Builds `heat_sim`, starts a server, runs 14 Playwright tests against it
+headless in Chromium, and stops the server again. Covers every simulation
+mode, the time slider indexing frames that actually exist (via `/frames`), the
+legend gradient agreeing with what the canvas paints, the hover readout
+landing on the right cell of a non-square grid, history round-tripping
+materials and insulated edges, a full six-mode run with no console errors, and
+horizontal overflow at phone width.
+
+The last of those has already earned its place: it caught a `box-sizing` bug
+that made the History and Validation panels 66px wider than their container -
+invisible in the slack of a desktop layout, and a broken page at 420px.
 
 ## Parallel Scaling
 
@@ -366,7 +406,10 @@ discrete maximum principle (no interior extremum).
 - `reaction.hpp`: reaction-diffusion (Fisher-KPP, Gray-Scott).
 - `tests.cpp`: physics regression tests.
 - `run_tests.sh`: builds and runs them.
-- `.github/workflows/ci.yml`: runs the tests on every push.
+- `tests/api/`: pytest suite for the Flask layer (test client; no server, no binary).
+- `tests/ui/`: Playwright end-to-end suite for the frontend, plus the `/study` fixture it serves.
+- `run_ui_tests.sh`: builds the binary, starts a server, runs that suite, stops the server.
+- `.github/workflows/ci.yml`: runs all three suites on every push.
 - `main.cpp`: CLI and JSON export for the web application.
 - `database.cpp` / `database.hpp`: SQLite persistence for timesteps.
 - `study.cpp`: convergence and stability study.
