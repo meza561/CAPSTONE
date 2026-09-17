@@ -27,6 +27,8 @@ latest_heatmap.json
 study_results.json
 study_*.csv
 figures/
+# ...except the committed copy the UI suite serves in place of /study.
+!tests/ui/fixtures/study_results.json
 
 # UI end-to-end test tooling (tests/ui/)
 tests/ui/node_modules/

@@ -1,3 +1,16 @@
+/* box-sizing: border-box everywhere, so a percentage width plus padding
+   (e.g. .history-panel, .validation-panel: width: 100% inside a padded
+   .panel) sizes to the specified width instead of adding padding on top
+   of it. Without this, those two panels rendered 64px wider than their
+   container on every screen - invisible on a wide viewport where the
+   extra width just ate into .app-wrapper's margin, but real horizontal
+   overflow at a narrow one. The per-input box-sizing declarations further
+   down predate this and are now redundant, but are left in place rather
+   than pulled out in the same change that added the reset. */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
 :root {
     --primary-emerald: #064E3B;
     --primary-emerald-hover: #043a2b;
@@ -816,6 +829,25 @@ th {
 }
 
 .cost-ms { color: var(--text-muted); margin-left: 6px; }
+
+/* .cost-row's three columns are fixed pixel widths (210px label + 190px
+   value either side of the bar) that add up to more than a narrow phone
+   screen before the middle 1fr track gets anything, pushing the whole page
+   sideways. Stack them instead: label, then bar, then value, each at the
+   full column width. This has to come after the base .cost-row rule above -
+   an earlier @media block does not out-rank a later unconditional rule of
+   equal specificity, it just loses the cascade once both apply. */
+@media (max-width: 900px) {
+    .cost-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+        margin-bottom: 14px;
+    }
+
+    .cost-value {
+        justify-self: start;
+    }
+}
 
 /* Reaction-diffusion parameter grid */
 .rd-grid {
