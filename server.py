@@ -25,13 +25,18 @@ ALLOWED_ORIGIN = os.environ.get('ALLOWED_ORIGIN', 'http://localhost:5000')
 # Public base URL for absolute links crawlers and social scrapers need.
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:5000').rstrip('/')
 
-# Analytics. Off unless ANALYTICS_DOMAIN is set, so local dev and the test
-# suites never phone home. Plausible was picked specifically because it sets no
+# Analytics. Off unless ANALYTICS_SITE is set, so local dev and the test suites
+# never phone home. GoatCounter was picked specifically because it sets no
 # cookies and stores no per-visitor identifier - under GDPR/ePrivacy that is
 # what removes the need for a consent banner, since there is no terminal-device
 # storage to consent to and nothing to tie a hit back to a person.
-ANALYTICS_DOMAIN = os.environ.get('ANALYTICS_DOMAIN', '')
-ANALYTICS_SRC = 'https://plausible.io/js/script.js'
+# This is a GoatCounter site code, not a domain: "noahmeza" means the hits go
+# to https://noahmeza.goatcounter.com.
+ANALYTICS_SITE = os.environ.get('ANALYTICS_SITE', '')
+# The script itself is served from GoatCounter's shared static host; only the
+# hit endpoint lives on the per-site subdomain.
+ANALYTICS_SCRIPT_HOST = 'https://gc.zgo.at'
+ANALYTICS_ORIGIN = f'https://{ANALYTICS_SITE}.goatcounter.com' if ANALYTICS_SITE else ''
 
 # The frontend is served from this same origin, so nothing needs cross-origin
 # access in normal use; this exists for the case where the UI is hosted
@@ -56,12 +61,15 @@ Talisman(
     session_cookie_secure=IS_PROD,
     content_security_policy={
         'default-src': "'self'",
-        'img-src': ["'self'", 'data:'],
+        # count.js reports each hit by assigning to an Image().src, so the
+        # per-site origin has to be an allowed image source as well, not just a
+        # connect- one.
+        'img-src': ["'self'", 'data:'] + ([ANALYTICS_ORIGIN] if ANALYTICS_SITE else []),
         'style-src': "'self'",
-        # Widened only when analytics is enabled: the script is third-party and
-        # posts its events back to the same host.
-        'script-src': ["'self'"] + (['https://plausible.io'] if ANALYTICS_DOMAIN else []),
-        'connect-src': ["'self'"] + (['https://plausible.io'] if ANALYTICS_DOMAIN else []),
+        # Widened only when analytics is enabled: the script comes from
+        # GoatCounter's static host and posts its hits to the site subdomain.
+        'script-src': ["'self'"] + ([ANALYTICS_SCRIPT_HOST, ANALYTICS_ORIGIN] if ANALYTICS_SITE else []),
+        'connect-src': ["'self'"] + ([ANALYTICS_SCRIPT_HOST, ANALYTICS_ORIGIN] if ANALYTICS_SITE else []),
         'base-uri': "'none'",
         'frame-ancestors': "'none'",
         'form-action': "'self'",
@@ -217,8 +225,7 @@ def index():
     # Rendered rather than served flat, so the Open Graph and Twitter tags can
     # carry an absolute SITE_URL without the domain being baked into the file.
     return render_template('index.html', site_url=SITE_URL,
-                           analytics_domain=ANALYTICS_DOMAIN,
-                           analytics_src=ANALYTICS_SRC)
+                           analytics_site=ANALYTICS_SITE)
 
 @app.route('/robots.txt')
 def robots():

@@ -9,8 +9,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./run_tests.sh       # build + run heat_tests (36 physics assertions), exits non-zero on failure
 ./run_study.sh        # build + run heat_study (convergence/stability/scaling), render figures/ via make_figures.py
 ./run_ui_tests.sh     # build heat_sim, start a server, run the Playwright suite headless, stop the server
-venv/bin/python -m pytest tests/api -q   # Flask API tests: no server, no binary, ~0.03s
+.venv/bin/python -m pytest tests/api -q  # Flask API tests: no server, no binary, ~0.03s
 ```
+
+The scripts create `.venv` (they accept a pre-existing `venv` too, but `.venv` is
+what they make), and they install `requirements.txt` only. The other two
+requirement files are opt-in, one-time installs kept out of the runtime set so
+the Docker image ships neither: `.venv/bin/pip install -r requirements-test.txt`
+for pytest, which `tests/api` needs and no script installs for you, and
+`requirements-study.txt` for matplotlib, which `run_study.sh` prompts for when
+the figures step is skipped. CI installs the test one explicitly.
 
 All four shell scripts prefer CMake (`build/` dir) but fall back to compiling the relevant `.cpp` directly with `clang++`/`g++` if no CMake is found (they search `PATH` then CLion's bundled copy). After a CMake build, the binary is copied over the top-level `./heat_sim` / `./heat_study` (atomically, via rename) because `server.py` and ad-hoc runs invoke it from the project root — and it's re-signed with `codesign --force --sign -` since macOS SIGKILLs a binary whose ad-hoc signature doesn't match its inode after an in-place copy.
 

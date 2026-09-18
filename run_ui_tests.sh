@@ -96,5 +96,20 @@ fi
 echo "Running the Playwright suite..."
 cd tests/ui
 npm ci
-npx playwright install --with-deps chromium
+# The browser binary needs no root, so it always installs.
+npx playwright install chromium
+# The OS libraries are a separate, root-requiring step, and --with-deps escalated
+# to sudo on every run whether or not anything was missing - enough to kill any
+# non-interactive run ("sudo: A terminal is required to authenticate") long after
+# the deps were installed once. Ask first, and pay for sudo only when the answer
+# is that something is genuinely absent. Only Linux has this step at all.
+# Anything other than a clean bill of health falls through to the install, so a
+# real gap still gets fixed here rather than surfacing later as a suite-wide wall
+# of unlaunchable-browser failures.
+if [ "$(uname -s)" = "Linux" ]; then
+    if ! npx playwright install-deps --dry-run chromium 2>&1 |
+            grep -q 'All system dependencies are installed'; then
+        npx playwright install-deps chromium
+    fi
+fi
 UI_BASE_URL="http://127.0.0.1:$PORT" npx playwright test

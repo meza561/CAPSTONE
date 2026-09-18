@@ -307,12 +307,13 @@ def test_security_headers_are_set(client):
 
 
 def test_analytics_is_off_and_csp_stays_closed_by_default(client):
-    # No ANALYTICS_DOMAIN means no third-party script and no widened CSP -
+    # No ANALYTICS_SITE means no third-party script and no widened CSP -
     # local dev and these suites must never phone home.
     res = client.get('/')
-    assert 'plausible.io' not in res.get_data(as_text=True)
+    assert 'goatcounter' not in res.get_data(as_text=True)
     csp = res.headers['Content-Security-Policy']
-    assert "script-src 'self'" in csp and 'plausible.io' not in csp
+    assert "script-src 'self'" in csp
+    assert 'gc.zgo.at' not in csp and 'goatcounter' not in csp
 
 
 def test_legal_pages_are_served_and_linked(client):

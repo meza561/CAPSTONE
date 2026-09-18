@@ -376,7 +376,7 @@ TLS and CDN.
 fly launch --no-deploy --name heat-sim
 fly secrets set SITE_URL=https://noahmeza.com \
                 ALLOWED_ORIGIN=https://noahmeza.com \
-                ANALYTICS_DOMAIN=noahmeza.com
+                ANALYTICS_SITE=noahmeza          # GoatCounter site code
 fly deploy
 fly certs add noahmeza.com     # then point the Cloudflare DNS record here
 ```
