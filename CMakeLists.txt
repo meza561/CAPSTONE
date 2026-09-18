@@ -59,6 +59,7 @@ add_executable(heat_sim
     database.hpp
     simulation.hpp
     reaction.hpp
+    wave.hpp
 )
 
 # Not every CMake installation's FindSQLite3 defines the imported target -
@@ -77,7 +78,7 @@ link_openmp(heat_study)
 
 # Physics regression tests. Asserts the exact analytical values, convergence
 # orders, stability threshold and conservation laws.
-add_executable(heat_tests tests.cpp simulation.hpp reaction.hpp)
+add_executable(heat_tests tests.cpp simulation.hpp reaction.hpp wave.hpp)
 link_openmp(heat_tests)
 
 enable_testing()

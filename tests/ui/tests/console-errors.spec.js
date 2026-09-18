@@ -1,11 +1,11 @@
-// A continuous session that switches through all six modes without
+// A continuous session that switches through all seven modes without
 // reloading, plus touches the timeline, playback and every tab - the things
 // that only break when the page has accumulated state from a previous run,
-// which six isolated page loads (simulation-modes.spec.js) would not catch.
+// which seven isolated page loads (simulation-modes.spec.js) would not catch.
 const { test, expect } = require('@playwright/test');
 const { runSimulation } = require('./helpers');
 
-test('no console errors across a full run of all six modes', async ({ page }) => {
+test('no console errors across a full run of all seven modes', async ({ page }) => {
   const errors = [];
   page.on('console', (msg) => {
     if (msg.type() === 'error') errors.push(msg.text());
@@ -21,6 +21,7 @@ test('no console errors across a full run of all six modes', async ({ page }) =>
     { mode: 'pde' },
     { mode: 'fisher', rdSteps: 300 },
     { mode: 'gray-scott', rdSteps: 300 },
+    { mode: 'wave', waveSteps: 200 },
   ];
   for (const opts of runs) {
     const { isError, statusText } = await runSimulation(page, { rows: 20, cols: 20, ...opts });

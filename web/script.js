@@ -68,6 +68,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // the opposite of what the timeline is for.
     let scaleRange = null;
     let timeSuffix = ' s';
+    // Signed fields (wave amplitude) are scaled symmetrically about zero, so
+    // the diverging map's white midpoint lands on zero displacement rather
+    // than on whatever the frame's midpoint happens to be.
+    let symmetricScale = false;
 
     // ---- Colour maps ---------------------------------------------------
     // The plate, the key and the tooltip all read colour from here, so the
@@ -91,7 +95,18 @@ document.addEventListener('DOMContentLoaded', () => {
             Math.min(1, Math.max(0, t * 3 - 1)) * 255,
             Math.min(1, Math.max(0, t * 3 - 2)) * 255
         ],
-        gray: t => [t * 255, t * 255, t * 255]
+        gray: t => [t * 255, t * 255, t * 255],
+        // Diverging: blue (negative) through white (zero) to red (positive).
+        // A signed field needs a map whose midpoint is visually neutral -
+        // on the thermal ramp zero lands on green, which reads as a feature
+        // of the solution rather than as the rest position of the membrane.
+        // Used for wave amplitude, where the scale is held symmetric about 0
+        // so white always means zero displacement.
+        diverging: t => {
+            const d = Math.abs(t - 0.5) * 2;          // 0 at centre, 1 at ends
+            const f = 1 - d;                          // whiteness
+            return t < 0.5 ? [f * 255, f * 255, 255] : [255, f * 255, f * 255];
+        }
     };
     let colorMap = COLOR_MAPS.thermal;
 
@@ -362,6 +377,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const fkFields = document.getElementById('fk-fields');
     const gsPreset = document.getElementById('gsPreset');
     const fkSpeed = document.getElementById('fk-speed');
+    const waveParams   = document.getElementById('wave-params');
+    const waveIntro    = document.getElementById('wave-intro');
+    const waveHint     = document.getElementById('wave-hint');
+    const waveC        = document.getElementById('waveC');
+    const waveBoundary = document.getElementById('waveBoundary');
+    const waveSteps    = document.getElementById('waveSteps');
+
     const rd = {
         steps: document.getElementById('rdSteps'),
         feed: document.getElementById('gsFeed'), kill: document.getElementById('gsKill'),
@@ -396,20 +418,36 @@ document.addEventListener('DOMContentLoaded', () => {
         const isPde = mode === 'pde';
         const isImplicit = (mode === 'be' || mode === 'cn');
         const isRD = (mode === 'fisher' || mode === 'gray-scott');
+        const isWave = (mode === 'wave');
 
         // Reaction-diffusion has no boundary temperatures (edges are zero-flux)
-        // and no heat sources; it seeds itself.
-        alphaParamsDiv.classList.toggle('hidden', isPde || isRD);
-        if (psGroup) psGroup.classList.toggle('hidden', isPde || isRD);
+        // and no heat sources; it seeds itself. The wave solver has no
+        // diffusivity at all, and its edges are clamped or free rather than
+        // held at a temperature.
+        alphaParamsDiv.classList.toggle('hidden', isPde || isRD || isWave);
+        if (psGroup) psGroup.classList.toggle('hidden', isPde || isRD || isWave);
         // The analytical solution assumes uniform alpha and Dirichlet edges;
         // reaction-diffusion has its own diffusivities and zero-flux edges.
         const matGroup = document.getElementById('mat-group');
-        if (matGroup) matGroup.classList.toggle('hidden', isPde || isRD);
-        if (boundaryGroup) boundaryGroup.classList.toggle('hidden', isRD);
+        if (matGroup) matGroup.classList.toggle('hidden', isPde || isRD || isWave);
+        if (boundaryGroup) boundaryGroup.classList.toggle('hidden', isRD || isWave);
         if (isPde) timeCtrl.classList.add('hidden');
 
         // F is only a free parameter for the implicit schemes. The explicit
         // one is pinned at 0.2 because it diverges above 0.25.
+        if (waveParams) waveParams.classList.toggle('hidden', !isWave);
+        if (isWave) {
+            waveIntro.innerHTML = 'A clamped or free membrane released from a '
+                + 'central pluck: <em>u<sub>tt</sub></em> = '
+                + '<em>c</em>\u00b2\u2207\u00b2<em>u</em>, stepped with a '
+                + 'central difference in time (leapfrog). Amplitude is signed, '
+                + 'so the colour key runs blue\u2013white\u2013red about zero.';
+            waveHint.textContent = 'The step size is derived from the 2D CFL '
+                + 'limit c\u0394t/\u0394x \u2264 1/\u221a2, so c cannot '
+                + 'destabilise the run \u2014 it sets how much physical time '
+                + 'the run spans, the way \u03b1 does for heat.';
+        }
+
         if (fParams) fParams.classList.toggle('hidden', !isImplicit);
         if (fHint) {
             fHint.textContent = isImplicit
@@ -696,6 +734,11 @@ document.addEventListener('DOMContentLoaded', () => {
             hi = Math.max(scaleRange.max, frame.max);
         }
 
+        if (symmetricScale) {
+            const m = Math.max(Math.abs(lo), Math.abs(hi));
+            lo = -m; hi = m;
+        }
+
         const flat = (hi - lo) < 1e-9;
         const range = flat ? 1 : (hi - lo);
         setValuePrecision(hi - lo);
@@ -736,6 +779,9 @@ document.addEventListener('DOMContentLoaded', () => {
             Du: parseFloat(rd.Du.value), Dv: parseFloat(rd.Dv.value),
             feed: parseFloat(rd.feed.value), kill: parseFloat(rd.kill.value),
             rdD: parseFloat(rd.D.value), rdR: parseFloat(rd.r.value),
+            waveC: parseFloat(waveC.value),
+            waveBoundary: waveBoundary.value,
+            waveSteps: parseInt(waveSteps.value),
             materials: validMaterials(),
             insulated: {
                 top: insBoxes.top.checked, bottom: insBoxes.bottom.checked,
@@ -752,9 +798,28 @@ document.addEventListener('DOMContentLoaded', () => {
         // concentration in [0, 1] and advances in model time, not seconds.
         const rdMode = inputs.mode.value === 'fisher' ? 'u'
                      : (inputs.mode.value === 'gray-scott' ? 'v' : null);
-        fieldUnit = rdMode ? ' ' + rdMode : '°C';
-        fieldLabel = rdMode ? 'Concentration ' + rdMode : 'Temperature';
+        const isWaveRun = inputs.mode.value === 'wave';
+        // Wave amplitude is a signed displacement, not a temperature or a
+        // concentration, and the wave solver does advance in seconds.
+        fieldUnit = isWaveRun ? '' : (rdMode ? ' ' + rdMode : '°C');
+        fieldLabel = isWaveRun ? 'Amplitude'
+                   : (rdMode ? 'Concentration ' + rdMode : 'Temperature');
         timeSuffix = rdMode ? '' : ' s';
+
+        // A signed field needs the diverging map to read correctly, so switch
+        // to it for wave runs - and switch back off it when leaving wave, so
+        // the choice does not silently persist onto a heat run. An explicit
+        // pick by the user is left alone in either direction.
+        symmetricScale = isWaveRun;
+        if (isWaveRun && colorMapSel.value !== 'diverging') {
+            colorMapSel.value = 'diverging';
+            colorMap = COLOR_MAPS.diverging;
+            renderLegendBar();
+        } else if (!isWaveRun && colorMapSel.value === 'diverging') {
+            colorMapSel.value = 'thermal';
+            colorMap = COLOR_MAPS.thermal;
+            renderLegendBar();
+        }
 
         try {
             const response = await fetch('/run', {
@@ -794,11 +859,21 @@ document.addEventListener('DOMContentLoaded', () => {
             // The run's colour range. The discrete maximum principle puts the
             // whole evolution between the extremes present at the start, so
             // the first and last frames bracket every frame in between.
-            scaleRange = rangeOf(heatmapData);
+            // The solver now reports the range it actually spanned over the
+            // whole run, which is not the same as the final frame's: a wave
+            // peaks at t = 0 and spreads out, so scaling from the last frame
+            // would rescale the colours the moment the timeline is scrubbed
+            // back. Fall back to the frame for older runs that lack it.
+            scaleRange = (typeof heatmapData.min === 'number'
+                          && typeof heatmapData.max === 'number'
+                          && isFinite(heatmapData.min) && isFinite(heatmapData.max))
+                ? { min: heatmapData.min, max: heatmapData.max }
+                : rangeOf(heatmapData);
 
             drawHeatmap(heatmapData);
             const isPde = inputs.mode.value === 'pde';
             const isRD = (inputs.mode.value === 'fisher' || inputs.mode.value === 'gray-scott');
+            const isWaveResult = inputs.mode.value === 'wave';
             const flat = heatmapData.data.reduce((a, r) => a.concat(r), []);
             const lo = Math.min.apply(null, flat), hi = Math.max.apply(null, flat);
             const isUniform = (hi - lo) < 1e-9;
@@ -812,7 +887,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   + ` \u2014 ${heatmapData.step + 1} steps`
                   // F is the heat-diffusion number; it means nothing for the
                   // reaction-diffusion models, which set their own step size.
-                  + ((heatmapData.F && !isRD) ? `, F = ${heatmapData.F}` : '')
+                  + ((heatmapData.F && !isRD && !isWaveResult) ? `, F = ${heatmapData.F}` : '')
                   + ` (${heatmapData.rows}x${heatmapData.cols})`;
 
             if (isUniform) {
@@ -822,7 +897,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (isPde && params.sources.length) {
                     msg += '. Analytical mode solves from the boundary temperatures only, '
                          + 'so the point source is not used \u2014 switch to FDM for that.';
-                } else if (noHeat) {
+                } else if (noHeat && !isRD && !isWaveResult) {
+                    // Boundary temperatures are a heat-mode concept; suggesting
+                    // one for a wave or a reaction-diffusion run points at a
+                    // control those modes do not even show.
                     msg += '. Set a boundary temperature, or enable a point source in FDM mode.';
                 }
             }
@@ -1011,12 +1089,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const rdFields = { rdSteps: rd.steps, Du: rd.Du, Dv: rd.Dv,
                                    feed: rd.feed, kill: rd.kill,
-                                   rdD: rd.D, rdR: rd.r };
+                                   rdD: rd.D, rdR: rd.r,
+                                   waveC: waveC, waveSteps: waveSteps };
                 Object.keys(rdFields).forEach(k => {
                     if (typeof item.params[k] === 'number' && isFinite(item.params[k])) {
                         rdFields[k].value = item.params[k];
                     }
                 });
+                // Boundary type is a string, so it misses the numeric sweep
+                // above; without this a restored wave run silently reverts to
+                // clamped edges and Run reproduces a different simulation.
+                if (item.params.waveBoundary === 'free' || item.params.waveBoundary === 'fixed') {
+                    waveBoundary.value = item.params.waveBoundary;
+                }
 
                 // Entries saved before per-run files have no runId; either way
                 // the timeline stays hidden until Run recomputes, since the

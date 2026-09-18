@@ -75,6 +75,62 @@ do not overflow. Superposition is what makes arbitrary boundary combinations
 correct; summing a single edge and blending toward an average does not solve
 Laplace's equation.
 
+### Wave equation (leapfrog)
+A different PDE rather than another integrator for the same one: the wave
+equation is **second order in time**, so it oscillates instead of relaxing to a
+steady state.
+
+$$u_{tt} = c^2 \left( u_{xx} + u_{yy} \right)$$
+
+Time stepping is the central difference (leapfrog)
+
+$$u^{n+1} = 2u^n - u^{n-1} + \nu^2 \nabla_h^2 u^n, \qquad \nu = \frac{c \, \Delta t}{\Delta x}$$
+
+which reads **two** time levels back, so the solver keeps the previous and
+current displacement grids explicitly - the structural difference from the heat
+and reaction-diffusion classes, which need only one. The scheme is second-order
+in space and time and non-dissipative: it conserves a discrete energy rather
+than damping, so a clamped membrane rings indefinitely.
+
+Starting it needs one special step, since $u^{-1}$ does not exist. Released
+from rest, a Taylor expansion about $t = 0$ gives
+
+$$u^1 = u^0 + \tfrac{1}{2} \nu^2 \nabla_h^2 u^0$$
+
+The factor of $\tfrac{1}{2}$ is load-bearing: a full leapfrog step at $t = 0$
+injects twice the correct initial acceleration and quietly drops the scheme to
+first order. The test suite pins this by measuring the observed order, which
+comes out at 2.00.
+
+| Property | Value |
+|---|---|
+| Stability | CFL: $\nu = c\,\Delta t/\Delta x \le 1/\sqrt{2}$ |
+| Accuracy | O($\Delta t^2$), O($\Delta x^2$) |
+| Edges | fixed (clamped, inverted reflection) or free (Neumann, same-sign) |
+| Initial condition | centred raised-cosine pluck, or a single-cell impulse |
+
+The $1/\sqrt{2}$ limit is **stricter than the 1D value of 1**, because the
+five-point Laplacian's largest eigenvalue grows with dimension; the solver
+refuses to step above it rather than filling the database with overflow. As
+with $\alpha$ for heat, $\Delta t$ is derived from the stability limit
+($\nu = 0.5$), so $c$ sets the physical time the run spans rather than the
+distance travelled per frame.
+
+Validation is against the analytical standing mode of a clamped square,
+
+$$u(x,y,t) = \sin\!\left(\frac{m\pi x}{L_x}\right)\sin\!\left(\frac{n\pi y}{L_y}\right)\cos(\omega t),
+\qquad \omega = c\pi\sqrt{(m/L_x)^2 + (n/L_y)^2}$$
+
+with $m = n = 1$, where the domain centre is the antinode and the centre value
+is exactly $\cos(\omega t)$. The suite tracks it over two full periods and
+holds the error below 2e-3.
+
+Amplitude is **signed**, unlike temperature or concentration, so the UI paints
+wave runs with a diverging blue-white-red map on a scale held symmetric about
+zero - white is zero displacement - and the solver reports the range it spanned
+over the whole run in its JSON so the colours do not rescale when the timeline
+is scrubbed back toward the louder opening frames.
+
 ## Temporal Scaling
 
 The explicit FDM scheme is stable only while the diffusion number
@@ -420,16 +476,18 @@ message and everything else works.
 - `GET /`: Serves the frontend.
 - `POST /run`: Executes a simulation.
   - **Payload**: `{ "rows": 20, "cols": 20, "top": 100, "bottom": 0, "left": 0, "right": 0, "mode": "fdm", "alpha": 0.01 }`
-    - `mode`: `fdm` (explicit), `be` (backward Euler), `cn` (Crank-Nicolson), `pde` (analytical), `fisher`, `gray-scott`
+    - `mode`: `fdm` (explicit), `be` (backward Euler), `cn` (Crank-Nicolson), `pde` (analytical), `fisher`, `gray-scott`, `wave`
     - `insulated`: `{"top": false, "bottom": true, ...}` - zero-flux edges
     - `materials`: `[{"x0": 0, "y0": 28, "x1": 60, "y1": 32, "alpha": 0.0005}]` - diffusivity rectangles in bottom-left coordinates
     - reaction-diffusion: `rdSteps`, plus `rdD`/`rdR` for Fisher-KPP or `Du`/`Dv`/`feed`/`kill` for Gray-Scott
+    - wave: `waveC` (speed), `waveBoundary` (`fixed`/`free`), `waveSteps`, `waveIC` (`pluck`/`impulse`)
     - `F`: diffusion number, implicit schemes only; explicit is pinned at 0.2
     - optional heat sources: `"hasPointSource": true, "sources": [{"x": 50, "y": 50, "temp": 1000}, {"x": 20, "y": 80, "temp": 500}]`
       (coordinates are bottom-left origin; out-of-range values are clamped to the grid.
       The older single-source form `psR`/`psC`/`psTemp` is still accepted.)
     - grid dimensions, temperatures and alpha are clamped to sane ranges
-  - **Response**: `{ "status", "output", "data": { "step", "rows", "cols", "dt", "saveInterval", "data" } }`
+  - **Response**: `{ "status", "output", "data": { "step", "rows", "cols", "dt", "saveInterval", "min", "max", "data" } }`
+    (`min`/`max` are the range the field spanned over the run, so a signed field can be scaled without assuming 0-100)
   - On failure, `message` carries the solver's actual stderr.
 - `GET /run?time=X`: Retrieves the stored state at timestep X, snapping down to the nearest saved frame.
 - `GET /frames`: Lists the step numbers stored for the current run, so the timeline can address exact frames instead of guessing them from the save interval.

@@ -29,10 +29,10 @@ There is no separate lint step. The C++ test binary isn't structured for filteri
 To invoke the simulator directly instead of through the API:
 ```bash
 ./heat_sim ROWS COLS top bottom left right [mode] [alpha] [F] [row col temp]...
-# mode: fdm (explicit, default) | be (backward Euler) | cn (Crank-Nicolson) | pde (analytical) | fisher | gray-scott
+# mode: fdm (explicit, default) | be (backward Euler) | cn (Crank-Nicolson) | pde (analytical) | fisher | gray-scott | wave
 # optional flags (anywhere in argv): --insulate=tblr   --material=r0,c0,r1,c1,alpha (repeatable)
 ```
-Fisher-KPP/Gray-Scott take their own trailing params instead of boundary temps/sources — see `main.cpp`'s argv parsing for the exact positions.
+Fisher-KPP/Gray-Scott/wave take their own trailing params instead of boundary temps/sources — see `main.cpp`'s argv parsing for the exact positions.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ Fisher-KPP/Gray-Scott take their own trailing params instead of boundary temps/s
 
 **Coordinate flip happens once, at the API boundary.** The UI and API use bottom-left-origin (x right, y up); the solver uses `[row][col]` with row 0 at the top. `server.py`'s `/run` handler is the only place this conversion occurs (for point sources and material rectangles) — `main.cpp` and `simulation.hpp` are unaware of the UI's coordinate convention.
 
-**`simulation.hpp` is the shared solver core**, linked into `heat_sim` (the app), `heat_study` (validation/scaling), and `heat_tests` (regression suite) — all three targets in `CMakeLists.txt` compile it directly rather than linking a shared library, so a change there affects all three binaries and should be re-validated with `./run_tests.sh` and usually `./run_study.sh`. `reaction.hpp` (Fisher-KPP / Gray-Scott) is a parallel, separate model sharing only the five-point Laplacian idea, not code, with the heat solver.
+**`simulation.hpp` is the shared solver core**, linked into `heat_sim` (the app), `heat_study` (validation/scaling), and `heat_tests` (regression suite) — all three targets in `CMakeLists.txt` compile it directly rather than linking a shared library, so a change there affects all three binaries and should be re-validated with `./run_tests.sh` and usually `./run_study.sh`. `reaction.hpp` (Fisher-KPP / Gray-Scott) and `wave.hpp` (2D wave equation) are parallel, separate models sharing only the five-point Laplacian idea, not code, with the heat solver. `wave.hpp` is the one that is second order in time, so it carries two displacement grids and starts with a half-coefficient Taylor step rather than a leapfrog one — that factor is what the observed-order assertion in `tests.cpp` protects.
 
 **Time integration.** Explicit (forward Euler) is conditionally stable (F = alpha·dt/dx² ≤ 0.25); Backward Euler and Crank-Nicolson use ADI (alternating-direction-implicit) splitting — Douglas-Rachford and Peaceman-Rachford respectively — reducing each 2D step to one tridiagonal (Thomas algorithm) solve per grid line, and are unconditionally stable so `F` becomes a free UI parameter for them. `dt` is always derived from `F` and `alpha`, never fixed, because a fixed dt at the default alpha under-resolved the approach to steady state (see `main.cpp` comments). Dirichlet boundaries and pinned point sources enter the implicit systems as identity rows.
 
