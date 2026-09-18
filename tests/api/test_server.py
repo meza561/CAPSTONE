@@ -174,6 +174,84 @@ def test_post_run_falls_back_to_the_exit_status(client, monkeypatch):
     assert 'exit status 3' in client.post('/run', json={}).get_json()['message']
 
 
+# ---- deployment routes and headers ------------------------------------
+
+def test_robots_points_at_the_sitemap_and_excludes_the_api(client):
+    body = client.get('/robots.txt').get_data(as_text=True)
+    assert f'Sitemap: {server.SITE_URL}/sitemap.xml' in body
+    # Crawling these costs the solver work and yields nothing indexable.
+    for path in ('/run', '/frames', '/study'):
+        assert f'Disallow: {path}' in body
+
+
+def test_sitemap_lists_the_root_with_an_absolute_url(client):
+    res = client.get('/sitemap.xml')
+    assert res.mimetype == 'application/xml'
+    assert f'<loc>{server.SITE_URL}/</loc>' in res.get_data(as_text=True)
+
+
+def test_unknown_page_gets_the_styled_404(client):
+    res = client.get('/no-such-page')
+    assert res.status_code == 404
+    body = res.get_data(as_text=True)
+    assert 'That page does not exist' in body
+    assert 'href="/"' in body          # a way back to the simulator
+
+
+def test_unknown_api_path_gets_a_json_404(client):
+    # A JSON client should not have to parse an HTML page to see what failed.
+    res = client.get('/run/nope')
+    assert res.status_code == 404
+    assert res.get_json()['status'] == 'error'
+
+
+def test_security_headers_are_set(client):
+    h = client.get('/').headers
+    assert h['X-Content-Type-Options'] == 'nosniff'
+    assert h['X-Frame-Options'] == 'SAMEORIGIN'
+    # The favicon is an inline SVG data: URI, so img-src has to allow it.
+    assert "img-src 'self' data:" in h['Content-Security-Policy']
+
+
+def test_https_is_not_forced_outside_production(client):
+    # Local dev and the test suites talk plain http; forcing a redirect here
+    # would break both.
+    assert server.IS_PROD is False
+    assert client.get('/').status_code == 200
+
+
+# ---- rate limiting ----------------------------------------------------
+
+def test_run_is_rate_limited_and_answers_with_json(client, monkeypatch):
+    monkeypatch.setattr(server, 'RUN_RATE_LIMIT', '2 per minute')
+    monkeypatch.setattr(server.limiter, 'enabled', True)
+    server.limiter.reset()
+    monkeypatch.setattr(server.subprocess, 'run', fake_run([]))
+    write_heatmap()
+
+    assert client.post('/run', json={}).status_code == 200
+    assert client.post('/run', json={}).status_code == 200
+
+    res = client.post('/run', json={})
+    assert res.status_code == 429
+    # A JSON caller should not get Flask's HTML error page back.
+    assert res.content_type.startswith('application/json')
+    assert res.get_json()['status'] == 'error'
+    assert 'Rate limit exceeded' in res.get_json()['message']
+    server.limiter.reset()
+
+
+def test_reading_frames_is_not_rate_limited(client, monkeypatch):
+    # Scrubbing the timeline fires these constantly; only /run spawns a solver.
+    monkeypatch.setattr(server, 'RUN_RATE_LIMIT', '1 per minute')
+    monkeypatch.setattr(server.limiter, 'enabled', True)
+    server.limiter.reset()
+
+    for _ in range(5):
+        assert client.get('/frames').status_code == 200
+    server.limiter.reset()
+
+
 # ---- POST /run argv construction --------------------------------------
 
 def test_post_run_flips_heat_sources_into_row_col(client, monkeypatch):

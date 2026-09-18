@@ -2,12 +2,72 @@ import os
 import subprocess
 import threading
 import json
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, Response, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_talisman import Talisman
+from werkzeug.middleware.proxy_fix import ProxyFix
 import sqlite3
 
-app = Flask(__name__)
-CORS(app)
+# web/ holds both the static assets and the two pages rendered as templates
+# (index.html needs SITE_URL in its Open Graph tags, 404.html is served by the
+# error handler), so it serves as the template folder too.
+app = Flask(__name__, template_folder='web')
+
+# Deployment settings. Everything has a local-dev default, so ./start.sh needs
+# no environment at all.
+IS_PROD = os.environ.get('FLASK_ENV', 'development') == 'production'
+ALLOWED_ORIGIN = os.environ.get('ALLOWED_ORIGIN', 'http://localhost:5000')
+# Public base URL for absolute links crawlers and social scrapers need.
+SITE_URL = os.environ.get('SITE_URL', 'http://localhost:5000').rstrip('/')
+
+# The frontend is served from this same origin, so nothing needs cross-origin
+# access in normal use; this exists for the case where the UI is hosted
+# elsewhere. Scoped to the API rather than the whole app.
+CORS(app, resources={r"/(run|frames|study)": {"origins": [ALLOWED_ORIGIN]}})
+
+# Every POST /run spawns a solver process, so it is the one route worth
+# capping. SIM_LOCK already serialises the work itself; this stops a flood of
+# requests queueing up behind it. In-memory storage is the right fit because
+# the app is single-process by design (see the note on SIM_LOCK below).
+RUN_RATE_LIMIT = os.environ.get('RUN_RATE_LIMIT', '60 per minute')
+limiter = Limiter(get_remote_address, app=app, storage_uri='memory://')
+
+# Security headers. Everything here is served from this origin: the stylesheet,
+# the two scripts, the preview image. The one exception is the favicon, an
+# inline SVG data: URI, which is why img-src has to allow data:.
+Talisman(
+    app,
+    force_https=IS_PROD,          # off locally, so http://localhost still works
+    strict_transport_security=IS_PROD,
+    strict_transport_security_max_age=31536000,
+    session_cookie_secure=IS_PROD,
+    content_security_policy={
+        'default-src': "'self'",
+        'img-src': ["'self'", 'data:'],
+        'style-src': "'self'",
+        'script-src': "'self'",
+        'base-uri': "'none'",
+        'frame-ancestors': "'none'",
+        'form-action': "'self'",
+    },
+    referrer_policy='strict-origin-when-cross-origin',
+)
+
+if IS_PROD:
+    # Behind a TLS-terminating proxy the app only ever sees http, so without
+    # this force_https redirects forever. One proxy hop.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+
+@app.errorhandler(429)
+def rate_limited(e):
+    """JSON, not Flask's HTML error page: every caller here speaks JSON."""
+    return jsonify({
+        "status": "error",
+        "message": f"Rate limit exceeded ({e.description}). Try again shortly.",
+    }), 429
 
 # The simulation writes to one fixed database and one fixed JSON file, so two
 # overlapping requests would interleave and corrupt each other's results.
@@ -92,11 +152,45 @@ def get_grid_from_db(step):
 
 @app.route('/')
 def index():
-    return send_from_directory(WEB_DIR, 'index.html')
+    # Rendered rather than served flat, so the Open Graph and Twitter tags can
+    # carry an absolute SITE_URL without the domain being baked into the file.
+    return render_template('index.html', site_url=SITE_URL)
+
+@app.route('/robots.txt')
+def robots():
+    # The API routes hold no crawlable content; keeping them out saves crawl
+    # budget and avoids bots POSTing nothing useful at the solver.
+    body = ('User-agent: *\n'
+            'Allow: /\n'
+            'Disallow: /run\n'
+            'Disallow: /frames\n'
+            'Disallow: /study\n'
+            f'Sitemap: {SITE_URL}/sitemap.xml\n')
+    return Response(body, mimetype='text/plain')
+
+@app.route('/sitemap.xml')
+def sitemap():
+    # One page: the simulator itself. Everything else is an API route or an
+    # asset, neither of which belongs in a sitemap.
+    xml = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+           f'  <url><loc>{SITE_URL}/</loc><changefreq>monthly</changefreq></url>\n'
+           '</urlset>\n')
+    return Response(xml, mimetype='application/xml')
 
 @app.route('/<path:path>')
 def static_files(path):
     return send_from_directory(WEB_DIR, path)
+
+
+@app.errorhandler(404)
+def not_found(e):
+    # The API's own 404s are returned directly by their routes; this catches
+    # everything else, which means a browser at a bad URL - so answer with the
+    # page, and keep JSON for anything under the API paths.
+    if request.path.startswith(('/run', '/frames', '/study')):
+        return jsonify({"status": "error", "message": "Not found"}), 404
+    return render_template('404.html'), 404
 
 @app.route('/study')
 def study():
@@ -145,6 +239,7 @@ def frames():
 
 
 @app.route('/run', methods=['POST'])
+@limiter.limit(lambda: RUN_RATE_LIMIT)
 def run_simulation():
     data = request.json
     try:

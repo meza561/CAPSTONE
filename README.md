@@ -363,6 +363,32 @@ the comparison is safe to run.
 Run-to-run variation is a few percent, so take a median of several runs before
 quoting any figure.
 
+## Deployment
+
+```bash
+cp .env.example .env          # then edit
+FLASK_ENV=production SITE_URL=https://your.domain \
+  gunicorn -w 1 --threads 4 -b 0.0.0.0:5000 wsgi:app
+```
+
+**One worker, deliberately.** The solver writes to a single `heat_sim.db` and a
+single `latest_heatmap.json`, and what stops two simultaneous runs interleaving
+is `SIM_LOCK` — a lock inside one process. A second worker brings its own lock
+and corrupts both files. Threads are fine, since `SIM_LOCK` serialises the
+simulations while frame reads stay responsive. Scaling past one process means
+moving that shared state out of the filesystem first.
+
+`FLASK_ENV=production` turns on forced HTTPS, HSTS and the `/run` rate limit;
+anything else leaves them off so `http://localhost` works. Behind a
+TLS-terminating proxy the app trusts one hop of `X-Forwarded-*`. Environment
+variables are documented in `.env.example`.
+
+| Route | Purpose |
+|---|---|
+| `/robots.txt` | Allows the app, excludes the API routes, points at the sitemap. |
+| `/sitemap.xml` | The one indexable page, at `SITE_URL`. |
+| `/og-image.png` | 1200x630 social card, regenerate with `make_og_image.py`. |
+
 ## API Endpoints
 - `GET /`: Serves the frontend.
 - `POST /run`: Executes a simulation.

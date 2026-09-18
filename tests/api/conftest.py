@@ -20,6 +20,9 @@ def client(tmp_path, monkeypatch):
     having to monkeypatch the module's constants.
     """
     monkeypatch.chdir(tmp_path)
+    # The limiter counts per IP in process memory, so every test shares one
+    # counter and would eventually exhaust it. Off unless a test asks for it.
+    monkeypatch.setattr(server.limiter, 'enabled', False)
     return server.app.test_client()
 
 
