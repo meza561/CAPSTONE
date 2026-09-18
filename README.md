@@ -365,9 +365,31 @@ quoting any figure.
 
 ## Deployment
 
+This needs a host that can **run a process and write files**: every simulation
+spawns the compiled solver and writes a per-run SQLite database. Cloudflare
+Pages and Workers cannot do that - point them at this app and the page loads
+while every Run returns 404. Use a container host with Cloudflare in front for
+TLS and CDN.
+
+```bash
+# Any container host; Fly.io is the shortest path from Dockerfile to a domain.
+fly launch --no-deploy --name heat-sim
+fly secrets set SITE_URL=https://noahmeza.com \
+                ALLOWED_ORIGIN=https://noahmeza.com \
+                ANALYTICS_DOMAIN=noahmeza.com
+fly deploy
+fly certs add noahmeza.com     # then point the Cloudflare DNS record here
+```
+
+Cloudflare in front of it: proxy the record (orange cloud) and set SSL/TLS mode
+to **Full (strict)**, so the hop from Cloudflare to the origin is encrypted too.
+Flexible mode leaves that hop in plaintext while the browser still shows a lock.
+
+Or without a container, on any box that has Python and a C++ compiler:
+
 ```bash
 cp .env.example .env          # then edit
-FLASK_ENV=production SITE_URL=https://your.domain \
+FLASK_ENV=production SITE_URL=https://noahmeza.com \
   gunicorn -w 1 --threads 4 -b 0.0.0.0:5000 wsgi:app
 ```
 
@@ -388,6 +410,11 @@ variables are documented in `.env.example`.
 | `/robots.txt` | Allows the app, excludes the API routes, points at the sitemap. |
 | `/sitemap.xml` | The one indexable page, at `SITE_URL`. |
 | `/og-image.png` | 1200x630 social card, regenerate with `make_og_image.py`. |
+| `/privacy.html`, `/terms.html` | Static legal pages, linked from the footer. |
+
+The Validation tab needs `study_results.json`, which `./run_study.sh` generates
+and which is not in the image; without it that tab shows a "not generated yet"
+message and everything else works.
 
 ## API Endpoints
 - `GET /`: Serves the frontend.

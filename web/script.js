@@ -765,11 +765,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) {
                 // Surface what the server actually said instead of a generic string.
-                let detail = 'Server error during simulation';
+                let detail = `Server error during simulation (HTTP ${response.status})`;
                 try {
                     const err = await response.json();
                     if (err && err.message) detail = err.message;
-                } catch (_) { /* non-JSON error body */ }
+                } catch (_) {
+                    // A non-JSON body means this did not reach the API at all -
+                    // typically static hosting answering with its own 404 page,
+                    // i.e. the backend is not deployed behind this domain.
+                    if (response.status === 404) {
+                        detail = 'The simulation API is not reachable at /run '
+                               + '(HTTP 404). This page is being served without '
+                               + 'its backend.';
+                    }
+                }
                 throw new Error(detail);
             }
             

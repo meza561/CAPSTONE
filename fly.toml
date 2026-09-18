@@ -1,0 +1,41 @@
+# Fly.io deployment. Any container host works - this is just the one with the
+# shortest path from `Dockerfile` to a custom domain behind Cloudflare.
+#
+#   fly launch --no-deploy --name heat-sim      # once, to create the app
+#   fly secrets set SITE_URL=https://noahmeza.com \
+#                   ALLOWED_ORIGIN=https://noahmeza.com \
+#                   ANALYTICS_DOMAIN=noahmeza.com
+#   fly deploy
+#   fly certs add noahmeza.com                  # then point Cloudflare DNS here
+
+app = "heat-sim"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  FLASK_ENV = "production"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # Zero is fine: a cold start costs a second, and nothing is lost when the
+  # machine stops - runs/ is ephemeral by design and swept after 24h anyway.
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/"
+
+[[vm]]
+  # The solver is CPU-bound and single-process; 1 shared CPU handles the grid
+  # sizes the API allows (capped at 300x300).
+  size = "shared-cpu-1x"
+  memory = "512mb"
