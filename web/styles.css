@@ -227,7 +227,10 @@ input[type="number"]:focus {
 }
 
 .primary-btn:disabled {
-    background-color: #a0b0a8;
+    /* Darkened from #a0b0a8, which left the white label at 2.27:1 while a run
+       was in flight. Disabled controls are exempt from SC 1.4.3, but the label
+       still has to be readable; 3.85:1 reads clearly and still looks inert. */
+    background-color: #78857f;
     cursor: not-allowed;
     transform: none;
 }
@@ -1009,3 +1012,55 @@ th {
 }
 
 .ins-toggle input[type="checkbox"] { width: auto; margin: 0; }
+
+/* ---------- Legal pages and footer ---------- */
+
+.legal-panel {
+    max-width: 720px;
+    margin: 0 auto;
+}
+
+.legal-panel h2 {
+    font-size: 1.05rem;
+    color: var(--primary-emerald);
+    margin: 26px 0 8px 0;
+}
+
+.legal-panel p,
+.legal-panel dd {
+    color: var(--text-muted);
+    font-size: 0.92rem;
+    line-height: 1.6;
+    margin: 0 0 12px 0;
+}
+
+.legal-list dt {
+    font-weight: 700;
+    color: var(--text-main);
+    font-size: 0.92rem;
+    margin-top: 14px;
+}
+
+.legal-list dd {
+    margin-left: 0;
+}
+
+.legal-panel a {
+    color: var(--primary-emerald);
+}
+
+.site-footer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    margin-top: 28px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.site-footer a {
+    color: var(--primary-emerald);
+    /* 44px tall so it is a real target on a phone, without looking padded. */
+    padding: 12px 6px;
+}

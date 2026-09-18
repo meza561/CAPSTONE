@@ -25,6 +25,14 @@ ALLOWED_ORIGIN = os.environ.get('ALLOWED_ORIGIN', 'http://localhost:5000')
 # Public base URL for absolute links crawlers and social scrapers need.
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:5000').rstrip('/')
 
+# Analytics. Off unless ANALYTICS_DOMAIN is set, so local dev and the test
+# suites never phone home. Plausible was picked specifically because it sets no
+# cookies and stores no per-visitor identifier - under GDPR/ePrivacy that is
+# what removes the need for a consent banner, since there is no terminal-device
+# storage to consent to and nothing to tie a hit back to a person.
+ANALYTICS_DOMAIN = os.environ.get('ANALYTICS_DOMAIN', '')
+ANALYTICS_SRC = 'https://plausible.io/js/script.js'
+
 # The frontend is served from this same origin, so nothing needs cross-origin
 # access in normal use; this exists for the case where the UI is hosted
 # elsewhere. Scoped to the API rather than the whole app.
@@ -50,7 +58,10 @@ Talisman(
         'default-src': "'self'",
         'img-src': ["'self'", 'data:'],
         'style-src': "'self'",
-        'script-src': "'self'",
+        # Widened only when analytics is enabled: the script is third-party and
+        # posts its events back to the same host.
+        'script-src': ["'self'"] + (['https://plausible.io'] if ANALYTICS_DOMAIN else []),
+        'connect-src': ["'self'"] + (['https://plausible.io'] if ANALYTICS_DOMAIN else []),
         'base-uri': "'none'",
         'frame-ancestors': "'none'",
         'form-action': "'self'",
@@ -205,7 +216,9 @@ def get_grid_from_db(step, db_path):
 def index():
     # Rendered rather than served flat, so the Open Graph and Twitter tags can
     # carry an absolute SITE_URL without the domain being baked into the file.
-    return render_template('index.html', site_url=SITE_URL)
+    return render_template('index.html', site_url=SITE_URL,
+                           analytics_domain=ANALYTICS_DOMAIN,
+                           analytics_src=ANALYTICS_SRC)
 
 @app.route('/robots.txt')
 def robots():
@@ -221,11 +234,13 @@ def robots():
 
 @app.route('/sitemap.xml')
 def sitemap():
-    # One page: the simulator itself. Everything else is an API route or an
-    # asset, neither of which belongs in a sitemap.
+    # The simulator and its two legal pages. Everything else is an API route
+    # or an asset, neither of which belongs in a sitemap.
     xml = ('<?xml version="1.0" encoding="UTF-8"?>\n'
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
            f'  <url><loc>{SITE_URL}/</loc><changefreq>monthly</changefreq></url>\n'
+           f'  <url><loc>{SITE_URL}/privacy.html</loc><changefreq>yearly</changefreq></url>\n'
+           f'  <url><loc>{SITE_URL}/terms.html</loc><changefreq>yearly</changefreq></url>\n'
            '</urlset>\n')
     return Response(xml, mimetype='application/xml')
 

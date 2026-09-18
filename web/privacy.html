@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Privacy &mdash; Heat Simulation Visualizer</title>
+    <meta name="description" content="What the Heat Simulation Visualizer stores: no accounts, no tracking cookies, simulation output deleted automatically.">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23064E3B'/%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='%232a5fd6'/%3E%3Cstop offset='0.5' stop-color='%2300b37a'/%3E%3Cstop offset='1' stop-color='%23e34948'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='5' y='13' width='22' height='6' rx='3' fill='url(%23g)'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="app-wrapper">
+        <main class="dashboard-container">
+            <section class="panel legal-panel">
+                <h1 class="panel-title">Privacy</h1>
+                <p class="panel-note">
+                    This is a numerical simulator. It has no accounts, no logins and
+                    no advertising, and it sets no tracking cookies.
+                </p>
+
+                <h2>What is stored, and for how long</h2>
+                <dl class="legal-list">
+                    <dt>Your simulation runs</dt>
+                    <dd>
+                        The parameters you submit (grid size, boundary temperatures,
+                        diffusivity and so on) are passed to the solver. Each run's
+                        output is written to its own database file on the server,
+                        named by a random run identifier, and is
+                        <strong>deleted automatically</strong> once it passes the
+                        retention window &mdash; 24 hours by default. Nothing ties a
+                        run to a person: the identifier is random and is not linked
+                        to you.
+                    </dd>
+
+                    <dt>Your run history</dt>
+                    <dd>
+                        The History tab is stored in your own browser using
+                        localStorage. It never leaves your device and the server
+                        cannot read it. <strong>Clear History</strong> on that tab
+                        deletes it, as does clearing site data in your browser.
+                    </dd>
+
+                    <dt>Server request logs</dt>
+                    <dd>
+                        Like any web server, this one records ordinary request logs,
+                        which can include IP addresses. They are used to keep the
+                        service running and to apply rate limits, not to build a
+                        profile of anyone. The rate limiter holds a request count
+                        per IP in memory only; it is lost when the server restarts.
+                    </dd>
+
+                    <dt>Analytics</dt>
+                    <dd>
+                        If analytics is enabled on this deployment it is a cookieless,
+                        aggregate-only measurement: page counts and referrers, with no
+                        cookies, no cross-site identifiers and no attempt to recognise
+                        individual visitors. That is why this site shows no cookie
+                        consent banner &mdash; there is nothing to consent to.
+                    </dd>
+                </dl>
+
+                <h2>What is not done</h2>
+                <p>
+                    No accounts, no email addresses, no advertising or tracking
+                    cookies, no third-party trackers, no sale or sharing of data,
+                    and no profiling of individual users.
+                </p>
+
+                <h2>Contact</h2>
+                <p>
+                    This is an open-source research and teaching tool. Questions about
+                    it belong in the project's issue tracker.
+                </p>
+
+                <a class="primary-btn error-home" href="/">Back to the simulator</a>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

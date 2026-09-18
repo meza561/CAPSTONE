@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Terms &mdash; Heat Simulation Visualizer</title>
+    <meta name="description" content="Terms of use for the Heat Simulation Visualizer: an educational numerical tool, provided as is, with no warranty.">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23064E3B'/%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='%232a5fd6'/%3E%3Cstop offset='0.5' stop-color='%2300b37a'/%3E%3Cstop offset='1' stop-color='%23e34948'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='5' y='13' width='22' height='6' rx='3' fill='url(%23g)'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="app-wrapper">
+        <main class="dashboard-container">
+            <section class="panel legal-panel">
+                <h1 class="panel-title">Terms of use</h1>
+                <p class="panel-note">
+                    Short version: it is a teaching and research tool, it comes with
+                    no warranty, and its numbers are not a substitute for engineering
+                    analysis.
+                </p>
+
+                <h2>What this is</h2>
+                <p>
+                    A solver for the 2D heat equation and two reaction-diffusion
+                    models, with its convergence and stability behaviour published in
+                    the Validation tab. It is intended for education and research.
+                </p>
+
+                <h2>No warranty</h2>
+                <p>
+                    The service is provided <strong>as is</strong>, without warranty
+                    of any kind. Every result is an approximation produced by a
+                    discretised numerical scheme and carries discretisation error;
+                    the explicit scheme is only stable below its diffusion-number
+                    limit, and results near that limit should be treated with care.
+                    <strong>Do not rely on these outputs for safety-critical,
+                    medical, structural or other consequential decisions.</strong>
+                </p>
+
+                <h2>Fair use</h2>
+                <p>
+                    Each run spawns a solver process, so simulation requests are rate
+                    limited per IP address. Please do not attempt to circumvent that
+                    limit, run automated load against the service, or otherwise
+                    interfere with its availability for other people.
+                </p>
+
+                <h2>Your data</h2>
+                <p>
+                    Run output is deleted automatically after the retention window,
+                    and your run history lives only in your own browser. There are no
+                    accounts, so there is nothing to delete on request. See the
+                    <a href="/privacy.html">privacy page</a> for the detail.
+                </p>
+
+                <h2>Availability</h2>
+                <p>
+                    No uptime is promised. The service may change or be withdrawn at
+                    any time, and stored run output may be removed earlier than the
+                    stated retention window.
+                </p>
+
+                <a class="primary-btn error-home" href="/">Back to the simulator</a>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

@@ -7,10 +7,13 @@ and the panel colours come from styles.css.
 
     venv/bin/python make_og_image.py
 """
+import os
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image
 
 EMERALD = '#064E3B'
 CHAMPAGNE = '#F8E7C9'
@@ -70,8 +73,16 @@ def main():
     for side in bar.spines.values():
         side.set_edgecolor('#d1c7b3')
 
-    fig.savefig('web/og-image.png', dpi=DPI, facecolor=CHAMPAGNE)
-    print(f'wrote web/og-image.png ({W}x{H})')
+    # Lossless only. The card is opaque, so the alpha channel is dead weight,
+    # and optimize= costs nothing at build time. Palette quantisation would
+    # halve it again but visibly bands the legend ramp, which is the one thing
+    # on the card that has to read as a continuous gradient.
+    fig.savefig('web/og-image.png', dpi=DPI, facecolor=CHAMPAGNE,
+                pil_kwargs={'optimize': True})
+    with Image.open('web/og-image.png') as im:
+        im.convert('RGB').save('web/og-image.png', optimize=True)
+    size_kb = os.path.getsize('web/og-image.png') / 1024
+    print(f'wrote web/og-image.png ({W}x{H}, {size_kb:.1f} KB)')
 
 
 if __name__ == '__main__':

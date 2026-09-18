@@ -306,6 +306,28 @@ def test_security_headers_are_set(client):
     assert "img-src 'self' data:" in h['Content-Security-Policy']
 
 
+def test_analytics_is_off_and_csp_stays_closed_by_default(client):
+    # No ANALYTICS_DOMAIN means no third-party script and no widened CSP -
+    # local dev and these suites must never phone home.
+    res = client.get('/')
+    assert 'plausible.io' not in res.get_data(as_text=True)
+    csp = res.headers['Content-Security-Policy']
+    assert "script-src 'self'" in csp and 'plausible.io' not in csp
+
+
+def test_legal_pages_are_served_and_linked(client):
+    for path in ('/privacy.html', '/terms.html'):
+        assert client.get(path).status_code == 200
+    body = client.get('/').get_data(as_text=True)
+    assert 'href="/privacy.html"' in body and 'href="/terms.html"' in body
+
+
+def test_sitemap_lists_the_legal_pages(client):
+    xml = client.get('/sitemap.xml').get_data(as_text=True)
+    for path in ('/privacy.html', '/terms.html'):
+        assert f'<loc>{server.SITE_URL}{path}</loc>' in xml
+
+
 def test_https_is_not_forced_outside_production(client):
     # Local dev and the test suites talk plain http; forcing a redirect here
     # would break both.
