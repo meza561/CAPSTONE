@@ -11,6 +11,7 @@
 
 #include "simulation.hpp"
 #include "reaction.hpp"
+#include "wave.hpp"
 
 #include <cstdio>
 #include <string>
@@ -311,6 +312,108 @@ void testGrayScott() {
     check(sd(0.010,0.080) < 1e-6, "dead regime stays uniform");
 }
 
+// ---------------------------------------------------------------- wave ----
+
+/**
+ * Build the (m, n) standing mode of a clamped square membrane and return the
+ * centre amplitude after each step alongside the closed form it should match.
+ *
+ *   u(x,y,t) = sin(m pi x/Lx) sin(n pi y/Ly) cos(omega t)
+ *   omega    = c pi sqrt((m/Lx)^2 + (n/Ly)^2)
+ *
+ * Released from rest, so the cosine starts at its maximum. For m = n = 1 the
+ * centre is the antinode, where the spatial factor is exactly 1 and the centre
+ * value is therefore cos(omega t) on the nose - no amplitude fitting needed.
+ */
+double standingModeError(int N, double nu, double tEnd) {
+    const double L = 1.0, c = 1.0;
+    const double dx = L / (N - 1), dt = nu * dx / c;
+    WaveSimulation w(N, N, c, dx, dt);
+    w.setBoundaryCondition(WaveSimulation::Boundary::Fixed);
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < N; ++j)
+            w.setDisplacement(i, j, std::sin(M_PI * (j * dx) / L) * std::sin(M_PI * (i * dx) / L));
+
+    const double omega = c * M_PI * std::sqrt(1.0 / (L * L) + 1.0 / (L * L));
+    const int ctr = (N - 1) / 2, steps = static_cast<int>(tEnd / dt);
+    double worst = 0.0;
+    for (int s = 1; s <= steps; ++s) {
+        w.step();
+        worst = std::max(worst, std::fabs(w.field()[ctr][ctr] - std::cos(omega * s * dt)));
+    }
+    return worst;
+}
+
+void testWaveStandingMode() {
+    section("Wave: (1,1) standing mode tracks the closed form");
+    // Two full periods (omega = pi sqrt(2), so T ~ 1.41). Phase error is what
+    // accumulates in a non-dissipative scheme, so a long window is the honest
+    // test - a single step would pass no matter how wrong the frequency is.
+    check(standingModeError(81, 0.5, 2.0) < 2e-3,
+          "centre amplitude matches cos(omega t) over two periods",
+          "max|err| = " + std::to_string(standingModeError(81, 0.5, 2.0)));
+
+    // Refining dx and dt together must quarter the error. This is the check
+    // that pins the startup step: taking a full leapfrog step at t = 0 instead
+    // of the half-coefficient Taylor step still looks plausible frame by frame
+    // but degrades the scheme to first order, halving the error instead.
+    const double e1 = standingModeError(41, 0.5, 2.0);
+    const double e2 = standingModeError(81, 0.5, 2.0);
+    const double e3 = standingModeError(161, 0.5, 2.0);
+    const double p = 0.5 * (std::log2(e1 / e2) + std::log2(e2 / e3));
+    check(p > 1.85 && p < 2.15, "observed order approaches 2",
+          "order = " + std::to_string(p));
+}
+
+void testWaveCFL() {
+    section("Wave: CFL limit is 1/sqrt(2) in 2D, not 1");
+    auto run = [](double nu, int steps) {
+        const int N = 61;
+        const double dx = 1.0 / (N - 1), c = 1.0, dt = nu * dx / c;
+        WaveSimulation w(N, N, c, dx, dt);
+        w.setBoundaryCondition(WaveSimulation::Boundary::Fixed);
+        w.pluckSmooth(N / 2, N / 2, 6, 1.0);
+        bool stepped = true;
+        for (int s = 0; s < steps; ++s) if (!w.step()) { stepped = false; break; }
+        return std::make_pair(stepped, w.maxAbsAmplitude());
+    };
+    // At and below the limit the scheme runs and stays bounded - it is
+    // non-dissipative, so "bounded" is the right criterion, not "decaying".
+    check(run(0.5, 3000).first && run(0.5, 3000).second <= 1.0001,
+          "runs and stays bounded at nu = 0.5");
+    check(run(WaveSimulation::cflLimit(), 3000).first,
+          "runs exactly at nu = 1/sqrt(2)");
+    // Above it, the step is refused rather than allowed to overflow. The 1D
+    // limit of 1 sits in this range, which is the point of the check.
+    check(!run(0.72, 10).first, "refuses to step at nu = 0.72");
+    check(!run(1.0, 10).first,  "refuses to step at nu = 1 (the 1D limit)");
+}
+
+void testWaveBoundaries() {
+    section("Wave: clamped edges stay pinned, free edges do not");
+    const int N = 41;
+    const double dx = 1.0 / (N - 1), dt = 0.5 * dx;
+
+    WaveSimulation fixed(N, N, 1.0, dx, dt);
+    fixed.setBoundaryCondition(WaveSimulation::Boundary::Fixed);
+    fixed.pluckSmooth(N / 2, N / 2, 5, 1.0);
+    for (int s = 0; s < 400; ++s) fixed.step();
+    double edge = 0.0;
+    for (int j = 0; j < N; ++j) edge = std::max(edge, std::fabs(fixed.field()[0][j]));
+    check(edge == 0.0, "clamped edge holds amplitude 0 exactly");
+
+    WaveSimulation free_(N, N, 1.0, dx, dt);
+    free_.setBoundaryCondition(WaveSimulation::Boundary::Free);
+    free_.pluckSmooth(N / 2, N / 2, 5, 1.0);
+    for (int s = 0; s < 400; ++s) free_.step();
+    double fedge = 0.0;
+    for (int j = 0; j < N; ++j) fedge = std::max(fedge, std::fabs(free_.field()[0][j]));
+    // The wave has had time to cross and reflect, so a free edge must carry
+    // amplitude; if it read zero the mirroring would be doing nothing.
+    check(fedge > 1e-6, "free edge carries amplitude after the wave reaches it",
+          "max|u| on edge = " + std::to_string(fedge));
+}
+
 } // namespace
 
 int main() {
@@ -327,6 +430,9 @@ int main() {
     testEnergyConservation();
     testFisherSpeed();
     testGrayScott();
+    testWaveStandingMode();
+    testWaveCFL();
+    testWaveBoundaries();
 
     std::printf("\n%d checks, %d failed\n", checks, failures);
     return failures == 0 ? 0 : 1;

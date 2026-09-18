@@ -337,7 +337,7 @@ def run_simulation():
         mode = str(data.get('mode', 'fdm'))
         if mode == 'explicit':
             mode = 'fdm'
-        if mode not in ('fdm', 'be', 'cn', 'pde', 'fisher', 'gray-scott'):
+        if mode not in ('fdm', 'be', 'cn', 'pde', 'fisher', 'gray-scott', 'wave'):
             mode = 'fdm'
 
         # Diffusion number. The explicit scheme is only stable to 0.25, so it
@@ -392,7 +392,21 @@ def run_simulation():
         cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha,
                str(diffusion)]
 
-        if mode in ('fisher', 'gray-scott'):
+        if mode == 'wave':
+            # The wave solver takes its own trailing parameters instead of heat
+            # sources, the same way reaction-diffusion does. Boundary
+            # temperatures do not apply: a wave edge is either clamped to zero
+            # amplitude or free, not held at a value.
+            #
+            # dt is derived from the CFL limit inside the binary, so c cannot
+            # destabilise the run - it sets the physical time the run spans.
+            wave_c = _clamp_float(data.get('waveC', 1.0), 0.05, 100.0, 1.0)
+            wave_bc = 'free' if str(data.get('waveBoundary', 'fixed')) == 'free' else 'fixed'
+            wave_steps = _clamp(data.get('waveSteps', 1200), 1, 200000, 1200)
+            wave_ic = 'impulse' if str(data.get('waveIC', 'pluck')) == 'impulse' else 'pluck'
+            cmd.extend([str(wave_c), wave_bc, str(wave_steps), wave_ic])
+
+        elif mode in ('fisher', 'gray-scott'):
             # Reaction-diffusion takes its own parameters instead of heat
             # sources; boundary temperatures do not apply (edges are zero-flux).
             steps = _clamp(data.get('rdSteps', 5000), 1, 200000, 5000)

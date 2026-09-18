@@ -11,6 +11,7 @@ const MODES = [
   { mode: 'pde', label: 'Analytical steady state' },
   { mode: 'fisher', label: 'Fisher-KPP', rdSteps: 300 },
   { mode: 'gray-scott', label: 'Gray-Scott', rdSteps: 300 },
+  { mode: 'wave', label: 'Wave (leapfrog)', waveSteps: 200 },
 ];
 
 for (const m of MODES) {
@@ -21,6 +22,7 @@ for (const m of MODES) {
       rows: 20,
       cols: 20,
       rdSteps: m.rdSteps,
+      waveSteps: m.waveSteps,
     });
 
     expect(isError, `status was: ${statusText}`).toBe(false);
