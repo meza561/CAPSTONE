@@ -9,14 +9,26 @@
 #include <sstream>
 #include <filesystem>
 #include <system_error>
+#include <limits>
 #include "database.hpp"
 #include "simulation.hpp"
 #include "reaction.hpp"
+#include "wave.hpp"
 
+/**
+ * @param rangeMin,rangeMax  the field's range over the whole run, when the
+ *        caller tracked it. NaN means "take it from this grid", which is right
+ *        for the heat modes: they march toward a steady state bracketed by the
+ *        boundary data, so the final frame already spans the run. A wave does
+ *        the opposite - it peaks at t = 0 and spreads out - so its final frame
+ *        understates the range, and the frontend would rescale mid-timeline.
+ */
 void exportToJSON(const std::string& filename, int step, int rows, int cols,
                   const std::vector<std::vector<double>>& grid,
                   double dt, int saveInterval,
-                  const std::string& scheme, double diffusionNumber) {
+                  const std::string& scheme, double diffusionNumber,
+                  double rangeMin = std::numeric_limits<double>::quiet_NaN(),
+                  double rangeMax = std::numeric_limits<double>::quiet_NaN()) {
     std::ofstream file(filename);
     file << "{\n";
     file << "  \"step\": " << step << ",\n";
@@ -27,6 +39,21 @@ void exportToJSON(const std::string& filename, int step, int rows, int cols,
     file << "  \"saveInterval\": " << saveInterval << ",\n";
     file << "  \"scheme\": \"" << scheme << "\",\n";
     file << "  \"F\": " << diffusionNumber << ",\n";
+    // The field's actual range. The heat modes happen to run between the
+    // boundary temperatures, but wave amplitude is signed and centred on zero,
+    // so a consumer cannot assume a 0-100 scale and read it correctly. Stating
+    // the measured range lets the frontend pick a symmetric diverging scale
+    // for a signed field without having to know which mode produced it.
+    double dataMin = grid.empty() ? 0.0 : grid[0][0];
+    double dataMax = dataMin;
+    for (const auto& row : grid)
+        for (double v : row) { dataMin = std::min(dataMin, v); dataMax = std::max(dataMax, v); }
+    if (std::isfinite(rangeMin) && std::isfinite(rangeMax)) {
+        dataMin = std::min(dataMin, rangeMin);
+        dataMax = std::max(dataMax, rangeMax);
+    }
+    file << "  \"min\": " << std::setprecision(10) << dataMin << ",\n";
+    file << "  \"max\": " << std::setprecision(10) << dataMax << ",\n";
     file << "  \"data\": [\n";
     for (int i = 0; i < rows; ++i) {
         file << "    [";
@@ -165,10 +192,16 @@ int main(int argcRaw, char* argvRaw[]) {
         // Diffusion number. The explicit scheme is only stable up to 0.25;
         // the implicit schemes accept any positive value.
         if (argc >= 10) F_TARGET = std::stod(argv[9]);
-        for (int k = 10; k + 2 < argc; k += 3) {
-            sources.push_back({ std::stoi(argv[k]),
-                                std::stoi(argv[k + 1]),
-                                std::stod(argv[k + 2]) });
+        // The trailing slots are heat sources only for the heat modes. The
+        // other models read their own parameters from the same positions, and
+        // wave's boundary type is a word ("fixed"/"free"), so parsing it as a
+        // source coordinate throws rather than quietly producing junk.
+        if (mode != "wave" && mode != "fisher" && mode != "gray-scott") {
+            for (int k = 10; k + 2 < argc; k += 3) {
+                sources.push_back({ std::stoi(argv[k]),
+                                    std::stoi(argv[k + 1]),
+                                    std::stod(argv[k + 2]) });
+            }
         }
     }
 
@@ -197,15 +230,21 @@ int main(int argcRaw, char* argvRaw[]) {
         methodName = "Crank-Nicolson (ADI)";
     }
 
-    if (method == HeatSimulation::Method::Explicit && F_TARGET > 0.25) {
+    const bool isWave = (mode == "wave");
+    const bool isReactionDiffusion = (mode == "fisher" || mode == "gray-scott");
+
+    // F is the heat solver's diffusion number. The wave and reaction-diffusion
+    // models derive their own step size and ignore it, so warning about it
+    // there would be describing a limit that does not apply to the run.
+    if (method == HeatSimulation::Method::Explicit && F_TARGET > 0.25
+            && !isWave && !isReactionDiffusion) {
         std::cout << "Warning: F = " << F_TARGET
                   << " exceeds the explicit stability limit of 0.25; "
                      "the solution will diverge.\n";
     }
 
     DT = F_TARGET * DX * DX / ALPHA;
-    const bool isReactionDiffusion = (mode == "fisher" || mode == "gray-scott");
-    if (!isReactionDiffusion) {
+    if (!isReactionDiffusion && !isWave) {
         if (mode != "pde") {
             std::cout << "Scheme: " << methodName << "\n";
         }
@@ -224,7 +263,7 @@ int main(int argcRaw, char* argvRaw[]) {
     if (cells * frames > SAMPLE_BUDGET) {
         long long scale = (cells * frames + SAMPLE_BUDGET - 1) / SAMPLE_BUDGET;
         SAVE_INTERVAL *= static_cast<int>(scale);
-        if (!isReactionDiffusion) {   // RD sets its own frame budget below
+        if (!isReactionDiffusion && !isWave) {   // those set their own frame budget below
             std::cout << "Large grid (" << ROWS << "x" << COLS
                       << "): saving every " << SAVE_INTERVAL << " steps\n";
         }
@@ -261,7 +300,90 @@ int main(int argcRaw, char* argvRaw[]) {
 
     if (!db.init()) return 1;
 
-    if (mode == "fisher" || mode == "gray-scott") {
+    if (mode == "wave") {
+        // ---- Wave equation ---------------------------------------------
+        // u_tt = c^2 lap(u). Second order in time, so the solver carries two
+        // time levels; see wave.hpp. Nothing here converges - a clamped
+        // membrane oscillates forever - so the run is a fixed step count
+        // rather than a convergence loop.
+        const double cWave = (argc > 10) ? std::stod(argv[10]) : 1.0;
+        const std::string bcArg = (argc > 11) ? argv[11] : "fixed";
+        int waveSteps = (argc > 12) ? std::stoi(argv[12]) : 1200;
+        const std::string icArg = (argc > 13) ? argv[13] : "pluck";
+
+        const double c = (cWave > 0.0 && cWave <= 1e3) ? cWave : 1.0;
+        const bool freeEdges = (bcArg == "free");
+        if (waveSteps < 1) waveSteps = 1;
+        if (waveSteps > 200000) waveSteps = 200000;
+
+        // dt comes from the CFL limit, exactly as the heat solver derives dt
+        // from F. A Courant number of 0.5 leaves comfortable margin under the
+        // 2D limit of 1/sqrt(2) ~ 0.707.
+        //
+        // Because dt is tied to the limit, dt = nu dx / c shrinks as c grows,
+        // so c does not change how far the wave moves per frame - it sets the
+        // physical time the run spans, the same way alpha does for heat. The
+        // reported dt is what makes the time axis correct.
+        const double NU = 0.5;
+        const double waveDx = 1.0;
+        const double waveDt = NU * waveDx / c;
+
+        WaveSimulation w(ROWS, COLS, c, waveDx, waveDt);
+        w.setBoundaryCondition(freeEdges ? WaveSimulation::Boundary::Free
+                                         : WaveSimulation::Boundary::Fixed);
+        if (icArg == "impulse") {
+            w.impulse(ROWS / 2, COLS / 2, 1.0);
+        } else {
+            // Radius scales with the grid so the pluck stays a feature of the
+            // domain rather than of the resolution.
+            w.pluckSmooth(ROWS / 2, COLS / 2, std::max(2, std::min(ROWS, COLS) / 8), 1.0);
+        }
+
+        std::cout << "Wave: c=" << c << " dt=" << waveDt
+                  << " (Courant nu=" << NU << ", 2D limit "
+                  << WaveSimulation::cflLimit() << ")\n";
+        std::cout << "Edges: " << (freeEdges ? "free (Neumann, same-sign reflection)"
+                                             : "fixed (clamped, inverted reflection)") << "\n";
+
+        int saveEvery = std::max(1, waveSteps / 150);
+        const long long wCells = static_cast<long long>(ROWS) * COLS;
+        const long long W_BUDGET = 3000000LL;
+        while ((waveSteps / saveEvery + 1) * wCells > W_BUDGET) saveEvery *= 2;
+        std::cout << "Running " << waveSteps << " steps, saving every "
+                  << saveEvery << "\n";
+
+        if (!db.beginRun()) return 1;
+        double waveMin = 0.0, waveMax = 0.0;
+        auto trackRange = [&](const WaveSimulation::Grid& g) {
+            for (const auto& row : g)
+                for (double v : row) { waveMin = std::min(waveMin, v); waveMax = std::max(waveMax, v); }
+        };
+        db.saveTimestep(0, w.field());
+        trackRange(w.field());
+        for (int s = 1; s <= waveSteps; ++s) {
+            if (!w.step()) {
+                // Unreachable with the derived dt above, but the binary is
+                // callable by hand: report it rather than writing a field that
+                // silently stopped advancing.
+                std::cerr << "CFL violated (nu = " << w.courant() << " > "
+                          << WaveSimulation::cflLimit() << "); stopping at step "
+                          << s << "\n";
+                return 1;
+            }
+            if (s % saveEvery == 0 || s == waveSteps) {
+                db.saveTimestep(s, w.field());
+                trackRange(w.field());
+            }
+        }
+        if (!db.endRun()) return 1;
+
+        exportToJSON(jsonPath, waveSteps, ROWS, COLS, w.field(),
+                     waveDt, saveEvery, "wave (leapfrog)", F_TARGET,
+                     waveMin, waveMax);
+        std::cout << "Simulation complete. Output written to " << jsonPath << "\n";
+        return 0;
+
+    } else if (mode == "fisher" || mode == "gray-scott") {
         // ---- Reaction-diffusion ----------------------------------------
         // Same five-point Laplacian as the heat solver, plus a reaction term.
         const bool gs = (mode == "gray-scott");
