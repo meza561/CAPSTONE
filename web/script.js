@@ -55,6 +55,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // useless for fast runs (a whole run of 0.5 s collapsed to two positions)
     // and meant the displayed time never quite matched the frame shown.
     let frameSteps = [];
+    // Which run's files the timeline reads. The server keeps one
+    // database per run, so every frame request has to name it.
+    let currentRunId = null;
     // Field units for the current run. Reaction-diffusion returns species
     // concentrations, not temperatures, so labelling them degrees Celsius is
     // simply wrong.
@@ -451,7 +454,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function fetchFrame(step) {
         if (frameCache.has(step)) return frameCache.get(step);
-        const response = await fetch(`/run?time=${step}`);
+        const response = await fetch(`/run?time=${step}&run_id=${currentRunId}`);
         if (!response.ok) throw new Error('Could not load that frame');
         const data = await response.json();
         while (frameCache.size >= cacheLimit()) {
@@ -537,7 +540,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadFrameList(finalStep) {
         frameSteps = [];
         try {
-            const response = await fetch('/frames');
+            const response = await fetch(`/frames?run_id=${currentRunId}`);
             if (response.ok) {
                 const d = await response.json();
                 if (Array.isArray(d.steps)) frameSteps = d.steps;
@@ -772,6 +775,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const result = await response.json();
             const heatmapData = result.data;
+            currentRunId = result.run_id || null;
 
             // Adopt the solver's time mapping for this run.
             simDt = (typeof heatmapData.dt === 'number' && heatmapData.dt > 0)
@@ -865,6 +869,7 @@ document.addEventListener('DOMContentLoaded', () => {
             saveToHistory({
                 date: new Date().toLocaleString(),
                 params: params,
+                runId: currentRunId,
                 steps: heatmapData.step,
                 data: heatmapData
             });
@@ -1003,6 +1008,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         rdFields[k].value = item.params[k];
                     }
                 });
+
+                // Entries saved before per-run files have no runId; either way
+                // the timeline stays hidden until Run recomputes, since the
+                // stored run may have aged out of the server's retention window.
+                currentRunId = item.runId || null;
 
                 stopPlay();
                 syncModeUI();

@@ -152,14 +152,14 @@ function parseLeadingNumber(text) {
   return m ? Number(m[0]) : NaN;
 }
 
-async function fetchFrame(page, step) {
-  const res = await page.request.get(`/run?time=${step}`);
+async function fetchFrame(page, step, runId) {
+  const res = await page.request.get(`/run?time=${step}&run_id=${runId}`);
   expect(res.ok()).toBeTruthy();
   return res.json();
 }
 
-async function fetchFrameSteps(page) {
-  const res = await page.request.get('/frames');
+async function fetchFrameSteps(page, runId) {
+  const res = await page.request.get(`/frames?run_id=${runId}`);
   expect(res.ok()).toBeTruthy();
   const body = await res.json();
   return body.steps;

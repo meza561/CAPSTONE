@@ -24,12 +24,13 @@ test('legend gradient matches the colours the canvas actually paints', async ({ 
     mode: 'fdm', rows: N, cols: N, top: 100, bottom: 0, left: 0, right: 0, alpha: 0.05,
   });
   const finalStep = body.data.step;
+  const runId = body.run_id;
 
   const legendMin = parseLeadingNumber(await page.locator('#legendMin').textContent());
   const legendMax = parseLeadingNumber(await page.locator('#legendMax').textContent());
   expect(legendMax - legendMin).toBeGreaterThan(50); // sanity: a real, non-degenerate range
 
-  const frame = await fetchFrame(page, finalStep);
+  const frame = await fetchFrame(page, finalStep, runId);
   const stops = await gradientStops(page);
   expect(stops.length).toBeGreaterThanOrEqual(2);
 
@@ -66,7 +67,8 @@ test('switching colour maps keeps the canvas and legend in sync at the extremes'
     mode: 'fdm', rows: N, cols: N, top: 100, bottom: 0, left: 0, right: 0, alpha: 0.05,
   });
   const finalStep = body.data.step;
-  const frame = await fetchFrame(page, finalStep);
+  const runId = body.run_id;
+  const frame = await fetchFrame(page, finalStep, runId);
   const mid = Math.floor(N / 2);
 
   await page.selectOption('#colorMap', 'blackbody');

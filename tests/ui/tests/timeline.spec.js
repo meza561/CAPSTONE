@@ -11,7 +11,10 @@ test('time slider indexes real stored frames and its label matches them', async 
   });
   const dt = body.data.dt;
 
-  const steps = await fetchFrameSteps(page);
+  // Frames now live in this run's own database, addressed by run id.
+  expect(body.run_id).toMatch(/^[0-9a-f]{32}$/);
+
+  const steps = await fetchFrameSteps(page, body.run_id);
   expect(steps.length).toBeGreaterThan(2); // otherwise this test proves nothing
 
   const slider = page.locator('#timeSlider');

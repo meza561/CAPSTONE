@@ -1,7 +1,10 @@
 import os
+import re
 import subprocess
 import threading
+import time
 import json
+import uuid
 from flask import Flask, Response, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -29,8 +32,8 @@ CORS(app, resources={r"/(run|frames|study)": {"origins": [ALLOWED_ORIGIN]}})
 
 # Every POST /run spawns a solver process, so it is the one route worth
 # capping. SIM_LOCK already serialises the work itself; this stops a flood of
-# requests queueing up behind it. In-memory storage is the right fit because
-# the app is single-process by design (see the note on SIM_LOCK below).
+# requests queueing up behind it. In-memory storage holds only while the app
+# runs as one process - see wsgi.py before raising the worker count.
 RUN_RATE_LIMIT = os.environ.get('RUN_RATE_LIMIT', '60 per minute')
 limiter = Limiter(get_remote_address, app=app, storage_uri='memory://')
 
@@ -69,15 +72,63 @@ def rate_limited(e):
         "message": f"Rate limit exceeded ({e.description}). Try again shortly.",
     }), 429
 
-# The simulation writes to one fixed database and one fixed JSON file, so two
-# overlapping requests would interleave and corrupt each other's results.
+# Runs no longer share output files (see RUNS_DIR below), so this is purely a
+# concurrency cap: solver processes are CPU-bound, and letting an unbounded
+# number start at once would thrash the box rather than corrupt anything.
 SIM_LOCK = threading.Lock()
 
 # Path to the compiled C++ binary
 SIM_BINARY = "./heat_sim"
 MAX_SOURCES = 32
 WEB_DIR = "./web"
-DB_NAME = "heat_sim.db"
+
+# Every run gets its own database and JSON output in here, named by run id.
+# That is what keeps two simultaneous runs from overwriting each other - the
+# single shared pair of files was the reason this had to stay one process.
+RUNS_DIR = "runs"
+RUN_RETENTION_HOURS = float(os.environ.get('RUN_RETENTION_HOURS', '24'))
+
+# A run id goes straight into a filename, so nothing but the 32 lowercase hex
+# characters of a uuid4 is allowed near the filesystem.
+_RUN_ID_RE = re.compile(r'\A[0-9a-f]{32}\Z')
+
+
+def _valid_run_id(run_id):
+    if not run_id or not _RUN_ID_RE.match(run_id):
+        return False
+    try:
+        return uuid.UUID(hex=run_id).version == 4
+    except ValueError:
+        return False
+
+
+def _run_path(run_id, ext):
+    return os.path.join(RUNS_DIR, f'{run_id}.{ext}')
+
+
+def sweep_old_runs():
+    """Drop run files past the retention window.
+
+    Without this runs/ grows for as long as the server lives: every run leaves
+    a database behind and nothing ever removes it.
+    """
+    cutoff = time.time() - RUN_RETENTION_HOURS * 3600
+    try:
+        names = os.listdir(RUNS_DIR)
+    except OSError:
+        return 0
+    removed = 0
+    for name in names:
+        path = os.path.join(RUNS_DIR, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                removed += 1
+        except OSError:
+            # Being swept by another process, or in use; it will come round
+            # again next time.
+            continue
+    return removed
 
 def _clamp(value, lo, hi, default):
     """Coerce a client-supplied dimension into a sane range."""
@@ -99,17 +150,17 @@ def _clamp_float(value, lo, hi, default):
     return max(lo, min(hi, v))
 
 
-def get_grid_from_db(step):
-    """Return the stored frame at or before `step`.
+def get_grid_from_db(step, db_path):
+    """Return the stored frame at or before `step`, from one run's database.
 
     Timesteps are persisted at an interval (SAVE_INTERVAL in main.cpp), so an
     arbitrary requested step is snapped down to the nearest stored frame,
     falling back to the earliest frame available.
     """
-    if not os.path.exists(DB_NAME):
+    if not os.path.exists(db_path):
         return None
 
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(db_path)
     try:
         cursor = conn.cursor()
 
@@ -214,17 +265,24 @@ def study():
 
 @app.route('/frames')
 def frames():
-    """The step numbers stored for the current run, in order.
+    """The step numbers stored for one run, in order.
 
     The UI slider indexes this list. Without it the client had to guess which
     steps exist from the save interval, round to whole seconds, and let the
     server snap to whatever was nearest - so the time it displayed was not
     quite the time of the frame it was showing.
     """
-    if not os.path.exists(DB_NAME):
+    run_id = request.args.get('run_id')
+    if not _valid_run_id(run_id):
+        return jsonify({"status": "error",
+                        "message": "A valid run_id is required"}), 400
+
+    db_path = _run_path(run_id, 'db')
+    if not os.path.exists(db_path):
+        # Expired from the retention window, or never existed.
         return jsonify({"steps": []})
 
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(db_path)
     try:
         cursor = conn.cursor()
         # Index-only scan of the (step, x, y) primary key.
@@ -303,6 +361,11 @@ def run_simulation():
             row = (n_rows - 1) - y      # flip: y counts up from the bottom
             source_args.extend([str(row), str(x), str(t)])
 
+        # Every run writes its own runs/<run_id>.{db,json}, so two runs can be
+        # in flight without touching each other's data.
+        run_id = uuid.uuid4().hex
+        sweep_old_runs()
+
         # Execute the C++ binary
         cmd = [SIM_BINARY, rows, cols, top, bottom, left, right, mode, alpha,
                str(diffusion)]
@@ -349,15 +412,17 @@ def run_simulation():
                 r1 = (n_rows - 1) - min(y0, y1)
                 cmd.append('--material=%d,%d,%d,%d,%g' % (r0, min(x0, x1), r1, max(x0, x1), av))
             
+        cmd.append(f'--run-id={run_id}')
+
         try:
+            # The output files are now per-run, so this lock is no longer about
+            # protecting them - it caps concurrent solver processes, which are
+            # CPU-bound and would otherwise pile up.
             with SIM_LOCK:
                 result = subprocess.run(cmd, capture_output=True, text=True,
                                         check=True, timeout=300)
-                # Read inside the lock: the binary rewrites this same file on
-                # every run, so releasing first would let a concurrent request
-                # swap it out between the run and the read.
-                with open('latest_heatmap.json', 'r') as f:
-                    heatmap_data = json.load(f)
+            with open(_run_path(run_id, 'json'), 'r') as f:
+                heatmap_data = json.load(f)
         except subprocess.TimeoutExpired:
             msg = "Simulation timed out after 300s"
             print("ERROR:", msg, flush=True)
@@ -375,6 +440,7 @@ def run_simulation():
 
         return jsonify({
             "status": "success",
+            "run_id": run_id,
             "output": result.stdout,
             "data": heatmap_data
         })
@@ -387,14 +453,24 @@ def get_timestep():
         step = request.args.get('time', type=int)
         if step is None:
             return jsonify({"status": "error", "message": "Time parameter required"}), 400
-        
-        heatmap_data = get_grid_from_db(step)
+
+        run_id = request.args.get('run_id')
+        if not _valid_run_id(run_id):
+            return jsonify({"status": "error",
+                            "message": "A valid run_id is required"}), 400
+
+        heatmap_data = get_grid_from_db(step, _run_path(run_id, 'db'))
         if not heatmap_data:
             return jsonify({"status": "error", "message": "Timestep not found"}), 404
             
         return jsonify(heatmap_data)
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+# Sweep at import, which covers every way the app starts (gunicorn included);
+# POST /run sweeps again so a long-lived server does not accumulate.
+sweep_old_runs()
+
 
 if __name__ == '__main__':
     if not os.path.exists(SIM_BINARY):

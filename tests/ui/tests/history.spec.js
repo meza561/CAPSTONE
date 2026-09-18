@@ -26,7 +26,13 @@ test('history restores materials and insulated edges, not just the basics', asyn
     ],
     sources: [{ x: 3, y: 3, temp: 500 }],
   };
-  await runSimulation(page, original);
+  const { body } = await runSimulation(page, original);
+
+  // History records which run produced the entry, so a restored run can be
+  // told apart from the one currently on screen.
+  const stored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('heat_sim_history') || '[]')[0]);
+  expect(stored.runId).toBe(body.run_id);
 
   // Mutate every field the restore needs to overwrite, so a pass here proves
   // the values came from history rather than being left over in the form.

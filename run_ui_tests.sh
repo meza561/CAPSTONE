@@ -82,12 +82,12 @@ trap cleanup EXIT
 
 echo "Waiting for the server to answer..."
 for _ in $(seq 1 30); do
-    if curl -sf "http://127.0.0.1:$PORT/frames" >/dev/null 2>&1; then
+    if curl -sf "http://127.0.0.1:$PORT/" >/dev/null 2>&1; then
         break
     fi
     sleep 0.5
 done
-if ! curl -sf "http://127.0.0.1:$PORT/frames" >/dev/null 2>&1; then
+if ! curl -sf "http://127.0.0.1:$PORT/" >/dev/null 2>&1; then
     echo "Error: server did not come up. See server.log:"
     cat server.log
     exit 1

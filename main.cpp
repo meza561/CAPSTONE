@@ -7,6 +7,8 @@
 #include <utility>
 #include <algorithm>
 #include <sstream>
+#include <filesystem>
+#include <system_error>
 #include "database.hpp"
 #include "simulation.hpp"
 #include "reaction.hpp"
@@ -43,21 +45,39 @@ struct MaterialRegion { int r0, c0, r1, c1; double alpha; };
 struct Options {
     bool insTop = false, insBottom = false, insLeft = false, insRight = false;
     std::vector<MaterialRegion> materials;
+    std::string runId;
 };
+
+/** A run id has to be safe to drop straight into a path. Exactly the 32
+ *  lowercase hex characters of a uuid4, so no separators and nothing that can
+ *  climb out of runs/. */
+bool validRunId(const std::string& id) {
+    if (id.size() != 32) return false;
+    for (char c : id) {
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    }
+    return true;
+}
 
 /**
  * Pull `--key=value` options out of argv and return the remaining positional
  * arguments. Keeping these flag-style avoids adding more positional slots to
- * an already long fixed layout, and leaves the existing ordering untouched.
+ * an already long fixed layout, and leaves the existing ordering untouched -
+ * which matters for --run-id in particular, since the reaction-diffusion modes
+ * already read their own parameters from the trailing positional slots.
  *
  *   --insulate=tblr                      edges held at zero flux
  *   --material=r0,c0,r1,c1,alpha         repeatable; a rectangle of diffusivity
+ *   --run-id=<32 hex>                    write runs/<id>.{db,json} instead of
+ *                                        the shared heat_sim.db
  */
 std::vector<std::string> extractOptions(int argc, char* argv[], Options& opt) {
     std::vector<std::string> positional;
     for (int i = 0; i < argc; ++i) {
         const std::string a = argv[i];
-        if (a.rfind("--insulate=", 0) == 0) {
+        if (a.rfind("--run-id=", 0) == 0) {
+            opt.runId = a.substr(9);
+        } else if (a.rfind("--insulate=", 0) == 0) {
             const std::string e = a.substr(11);
             opt.insTop    = e.find('t') != std::string::npos;
             opt.insBottom = e.find('b') != std::string::npos;
@@ -83,6 +103,27 @@ std::vector<std::string> extractOptions(int argc, char* argv[], Options& opt) {
 int main(int argcRaw, char* argvRaw[]) {
     Options opt;
     std::vector<std::string> args = extractOptions(argcRaw, argvRaw, opt);
+
+    // Per-run output files. Without --run-id the binary keeps writing the
+    // shared pair it always has, so running it by hand (and the CI smoke test)
+    // still works; the server always passes one, which is what lets two runs
+    // proceed without touching each other's data.
+    std::string dbPath = "heat_sim.db";
+    std::string jsonPath = "latest_heatmap.json";
+    if (!opt.runId.empty()) {
+        if (!validRunId(opt.runId)) {
+            std::cerr << "Invalid --run-id: expected 32 lowercase hex characters\n";
+            return 1;
+        }
+        std::error_code ec;
+        std::filesystem::create_directories("runs", ec);
+        if (ec) {
+            std::cerr << "Could not create runs/: " << ec.message() << "\n";
+            return 1;
+        }
+        dbPath = "runs/" + opt.runId + ".db";
+        jsonPath = "runs/" + opt.runId + ".json";
+    }
     const int argc = static_cast<int>(args.size());
     std::vector<char*> argvStore;
     for (auto& s : args) argvStore.push_back(const_cast<char*>(s.c_str()));
@@ -216,7 +257,7 @@ int main(int argcRaw, char* argvRaw[]) {
                   << (opt.insTop ? " top" : "") << (opt.insBottom ? " bottom" : "")
                   << (opt.insLeft ? " left" : "") << (opt.insRight ? " right" : "") << "\n";
     }
-    HeatDatabase db("heat_sim.db");
+    HeatDatabase db(dbPath);
 
     if (!db.init()) return 1;
 
@@ -297,9 +338,9 @@ int main(int argcRaw, char* argvRaw[]) {
         }
         if (!db.endRun()) return 1;
 
-        exportToJSON("latest_heatmap.json", rdSteps, ROWS, COLS, rd.field(),
+        exportToJSON(jsonPath, rdSteps, ROWS, COLS, rd.field(),
                      rdDt, saveEvery, rdName, F_TARGET);
-        std::cout << "Simulation complete. Output written to latest_heatmap.json\n";
+        std::cout << "Simulation complete. Output written to " << jsonPath << "\n";
         return 0;
 
     } else if (mode == "pde") {
@@ -308,7 +349,7 @@ int main(int argcRaw, char* argvRaw[]) {
         db.beginRun();
         db.saveTimestep(0, sim.getGrid());
         db.endRun();
-        exportToJSON("latest_heatmap.json", 0, ROWS, COLS, sim.getGrid(), DT, 1,
+        exportToJSON(jsonPath, 0, ROWS, COLS, sim.getGrid(), DT, 1,
                      "analytical", F_TARGET);
     } else {
         // An insulated edge carries no imposed temperature - writing one would
@@ -351,10 +392,10 @@ int main(int argcRaw, char* argvRaw[]) {
         }
 
         if (!db.endRun()) return 1;
-        exportToJSON("latest_heatmap.json", finalStep, ROWS, COLS, sim.getGrid(),
+        exportToJSON(jsonPath, finalStep, ROWS, COLS, sim.getGrid(),
                      DT, SAVE_INTERVAL, methodName, F_TARGET);
     }
 
-    std::cout << "Simulation complete. Output written to latest_heatmap.json\n";
+    std::cout << "Simulation complete. Output written to " << jsonPath << "\n";
     return 0;
 }
