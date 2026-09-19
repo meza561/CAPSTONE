@@ -1,0 +1,1 @@
+{"nodes": [{"id": "web_404_shared_stylesheet", "label": "404 page reuses the app stylesheet to avoid unsafe-inline CSP", "file_type": "rationale", "source_file": "web/404.html", "source_location": "link rel=stylesheet comment", "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}

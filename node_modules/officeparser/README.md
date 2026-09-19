@@ -1,0 +1,1475 @@
+# officeParser: Universal Office Document Parser & Generator
+
+A robust, strictly-typed **Node.js and Browser** library for parsing office files into a rich **Abstract Syntax Tree (AST)** and generating high-fidelity output in multiple formats.
+
+**Parses:** [`docx`](https://en.wikipedia.org/wiki/Office_Open_XML) · [`pptx`](https://en.wikipedia.org/wiki/Office_Open_XML) · [`xlsx`](https://en.wikipedia.org/wiki/Office_Open_XML) · [`odt`](https://en.wikipedia.org/wiki/OpenDocument) · [`odp`](https://en.wikipedia.org/wiki/OpenDocument) · [`ods`](https://en.wikipedia.org/wiki/OpenDocument) · [`pdf`](https://en.wikipedia.org/wiki/PDF) · [`rtf`](https://en.wikipedia.org/wiki/Rich_Text_Format) · [`csv`](https://en.wikipedia.org/wiki/Comma-separated_values) · [`md`](https://en.wikipedia.org/wiki/Markdown) · [`html`](https://en.wikipedia.org/wiki/HTML) · [`epub`](https://en.wikipedia.org/wiki/EPUB)
+
+**Generates:** `Markdown` · `HTML` · `CSV` · `RTF` · `PDF` · `EPUB` · `Plain Text` · `RAG Chunks`
+
+[![npm version](https://badge.fury.io/js/officeparser.svg)](https://badge.fury.io/js/officeparser)
+[![Total Downloads](https://img.shields.io/npm/dt/officeparser.svg)](https://www.npmjs.com/package/officeparser)
+[![Weekly Downloads](https://img.shields.io/npm/dw/officeparser.svg)](https://www.npmjs.com/package/officeparser)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+---
+
+### 🌟 [Live Interactive AST Visualizer & Documentation](https://harshankur.github.io/officeParser/) 🌟
+*Upload any office file in your browser: inspect the AST, tweak config, and preview generated output in real-time.*
+
+- **AST Visualizer**: Inspect the hierarchical node tree, metadata, and raw content
+- **Config Configurator**: Tweak options (`ignoreNotes`, `ocr`, `newlineDelimiter`) and see results instantly
+- **Debugging**: Identify exactly how nodes are interpreted
+- **Format Specs**: Read detailed specs for the AST structure and all config options
+
+---
+
+### 📝 [Changelog](CHANGELOG.md)
+
+---
+
+## Table of Contents
+- [Install](#install-via-npm)
+- [Command Line Usage](#command-line-usage)
+- [Quick Decision Guide](#quick-decision-guide)
+- [Library Usage: Parsing](#library-usage-parsing)
+  - [Async/Await](#asyncawait)
+  - [Callback (Backward Compat)](#callback-backward-compat)
+  - [File Buffers & ArrayBuffers](#file-buffers--arraybuffers)
+  - [`ast.to()`: Generate from AST](#astto-generate-from-ast)
+  - [`ast.toText()`: Quick Text Extraction](#asttotext-quick-text-extraction)
+- [OfficeGenerator](#officegenerator)
+- [OfficeConverter: One-Step API](#officeconverter-one-step-api)
+- [Native RAG Chunking](#native-rag-chunking)
+- [The AST Structure](#the-ast-structure)
+- [Deep Dive: Document Components](#deep-dive-document-components)
+- [Markdown Dialect Support](#markdown-dialect-support)
+- [EPUB Support](#epub-support)
+- [Performance Highlights](#performance-highlights)
+- [Advanced AST Usage](#advanced-ast-usage)
+- [Configuration Reference](#configuration-reference)
+  - [OfficeParserConfig](#officeparserconfig)
+  - [GeneratorConfig (Common)](#generatorconfig-common)
+  - [onNode Callback](#onnode-callback-advanced-node-manipulation)
+  - [styleMap: Semantic Style Mapping](#stylemap-semantic-style-mapping)
+  - [HtmlGeneratorConfig](#htmlgeneratorconfig)
+  - [MdGeneratorConfig](#mdgeneratorconfig)
+  - [PdfGeneratorConfig](#pdfgeneratorconfig)
+  - [CsvGeneratorConfig](#csvgeneratorconfig)
+  - [TextGeneratorConfig](#textgeneratorconfig)
+  - [metadataOverrides](#metadataoverrides)
+  - [OfficeConverterConfig](#officeconverterconfig)
+  - [ChunkingConfig](#chunkingconfig)
+- [OCR Scheduler & Resource Management](#ocr-scheduler--resource-management)
+- [Browser Usage](#browser-usage)
+- [Troubleshooting & Common Issues](#troubleshooting--common-issues)
+- [Known Limitations](#known-limitations)
+- [Security & Trust Boundary](#security--trust-boundary)
+- [Contributing](#contributing)
+
+---
+
+## Install via npm
+
+```bash
+npm i officeparser
+```
+
+---
+
+## Command Line Usage
+
+```bash
+# Full AST as JSON (default)
+npx officeparser /path/to/file.docx
+
+# Plain text output
+npx officeparser /path/to/file.docx --to=text
+
+# Convert DOCX to Markdown and save
+npx officeparser report.docx --to=md --output=report.md
+
+# Convert PPTX to HTML (using a bare flag for ocr)
+npx officeparser presentation.pptx --to=html --output=preview.html --ocr
+
+# Convert XLSX to CSV with a custom delimiter
+npx officeparser data.xlsx --to=csv --csvDelimiter=";"
+
+# Generate RAG chunks
+npx officeparser document.pdf --to=chunks
+
+# Convert DOCX to EPUB (--extractAttachments is required to embed images)
+npx officeparser book.docx --extractAttachments --to=epub --output=book.epub
+
+# Overriding file extension mapping
+npx officeparser my_document --fileType=docx --to=json
+```
+
+### CLI Syntax
+- **Values:** Flags can be passed as `--flag=value` or `--flag value`.
+- **Booleans:** Bare flags imply `true` (e.g. `--ocr` is equivalent to `--ocr=true`). Negation flags start with `no-` (e.g. `--no-ocr` is equivalent to `--ocr=false`).
+- **Nested Objects:** You can pass nested properties directly using JSON dot-notation (e.g. `--ocrConfig.language=fra` or `--htmlConfig.containerWidth=900px`).
+
+### CLI Options
+
+| Flag | Values | Default | Description |
+|------|--------|---------|-------------|
+| `--to` | `json\|text\|md\|html\|csv\|rtf\|pdf\|epub\|chunks` | `json` | Output format |
+| `--output` | path | — | Write output to a file |
+| `--fileType` | `docx\|xlsx\|pptx\|odt\|odp\|ods\|pdf\|rtf\|csv\|md\|html\|epub` | — | Explicitly override input file type detection |
+| `--ocr` | boolean | `false` | Enable OCR for images |
+| `--extractAttachments` | boolean | `false` | Extract images/charts as Base64 |
+| `--ignoreNotes` | boolean | `false` | Ignore footnotes/endnotes/speaker notes |
+| `--ignoreComments` | boolean | `false` | Ignore inline comments |
+| `--ignoreHeadersAndFooters` | boolean | `false` | Ignore headers and footers |
+| `--ignoreSlideMasters` | boolean | `false` | Ignore slide masters |
+| `--ignoreInternalLinks` | boolean | `false` | Ignore internal links |
+| `--newlineDelimiter` | string | `\n` | Delimiter between lines/blocks in plaintext outputs |
+| `--csvDelimiter` | string | `,` | Custom delimiter for CSV files |
+| `--includeRawContent` | boolean | `false` | Include raw XML/RTF in nodes |
+| `--serializeRawContent` | boolean | `true` | Include stringified XML in metadata |
+| `--preserveXmlWhitespace` | boolean | `false` | Keep raw formatting space |
+| `--includeBreakNodes` | boolean | `false` | Include break nodes (DOCX and ODF) |
+| `--verbose` | boolean | `false` | Show full error stack traces and warning logs |
+| `--includeFormatting` | boolean | `true` | Include formatting style map matching |
+| `--renderMetadata` | boolean | `false` | Render metadata as visible content in the generated output |
+| `--htmlConfig.containerWidth` | string \| number | `auto` | HTML output container width (e.g. `900px`, `100%`) |
+| ~~`--format`~~ | `json\|text\|md\|html\|csv\|rtf\|pdf\|epub\|chunks` | `json` | **Deprecated.** Use `--to` |
+| ~~`--toText`~~ | `true\|false` | `false` | **Deprecated.** Use `--to=text`, which keeps footnote text and image placeholders by default (both switchable); this flag drops them unconditionally |
+| ~~`--ocrLanguage`~~ | string | `eng` | **Deprecated.** Use `--ocrConfig.language` |
+| ~~`--putNotesAtLast`~~ | `true\|false` | `false` | **Deprecated and ignored.** Notes are attached structurally to their nodes. |
+| ~~`--outputErrorToConsole`~~ | `true\|false` | `false` | **Deprecated.** Use `--verbose` |
+
+---
+
+## Quick Decision Guide
+
+| Goal | API to use |
+|------|-----------|
+| Extract text / AST from a file | `OfficeParser.parseOffice(file)` |
+| Convert directly to another format | `OfficeConverter.convert(file, 'md')` |
+| Parse first, then generate | `parseOffice()` → `OfficeGenerator.generate(ast, 'html')` |
+| Convert on the AST itself (shorthand) | `ast.to('md')` |
+| RAG pipeline chunking | `OfficeConverter.convert(file, 'chunks', {...})` |
+
+---
+
+## Library Usage: Parsing
+
+### Async/Await
+
+```js
+const officeParser = require('officeparser');
+
+const ast = await officeParser.parseOffice('/path/to/file.docx');
+
+console.log(ast.type);       // 'docx'
+console.log(ast.metadata);   // { author, title, created, ... }
+console.log(ast.content);    // Array of hierarchical nodes
+console.log(ast.attachments);// Images/charts (if extractAttachments: true)
+console.log(ast.warnings);   // Non-fatal issues from parsing phase
+```
+
+**TypeScript (named import):**
+```ts
+import { OfficeParser } from 'officeparser';
+
+const ast = await OfficeParser.parseOffice('report.docx', {
+    extractAttachments: true,
+    ocr: true,
+});
+```
+
+### Callback (Backward Compat)
+
+```js
+officeParser.parseOffice('/path/to/file.docx', function(ast, err) {
+    if (err) { console.error(err); return; }
+    console.log(ast.toText());
+});
+```
+
+### File Buffers, ArrayBuffers & Blobs
+
+Pass a `Buffer`, `ArrayBuffer`, `Uint8Array`, or a web `Blob`/`File` instead of a file path:
+
+```js
+const fs = require('fs');
+const buffer = fs.readFileSync('/path/to/file.pdf');
+const ast = await officeParser.parseOffice(buffer);
+```
+
+In the browser you can hand a `File`/`Blob` straight from an `<input type="file">` — no need to
+read it into a buffer first. A `File`'s name drives type detection, so no `fileType` hint is
+needed when the name has a recognizable extension:
+
+```js
+// input.files[0] is a File (e.g. "report.docx")
+const ast = await officeParser.parseOffice(input.files[0]);
+```
+
+> [!IMPORTANT]
+> **Text-based formats from buffers need a `fileType` hint.**
+> Formats like `md`, `html`, and `csv` have no magic bytes, so the parser cannot
+> auto-detect them from a buffer. You **must** provide `fileType` in that case:
+> ```js
+> const ast = await officeParser.parseOffice(markdownBuffer, { fileType: 'md' });
+> ```
+
+> [!NOTE]
+> **ZIP-backed formats are identified from inside the archive.** DOCX, XLSX, PPTX, ODT, ODS, ODP
+> and EPUB are all ZIP files, and telling them apart from the first bytes alone is unreliable for
+> archives written by streaming producers or holding very many parts. When the byte signature is
+> inconclusive, the archive is opened and the format is read from its own declaration
+> (`[Content_Types].xml`, or the `mimetype` entry), so these parse from a buffer without a hint.
+> Supplying `fileType` remains the fastest and most certain route: it decides which parser runs,
+> and for these formats no archive inspection is done at all.
+
+### Cancellation with AbortSignal
+
+You can pass a standard `AbortSignal` (e.g. from an `AbortController`) to cancel an active parse operation. This is especially useful for setting request-level timeouts or canceling long-running parses (like large PDFs with OCR).
+
+```js
+const controller = new AbortController();
+
+// Cancel parsing if it takes longer than 5 seconds
+setTimeout(() => controller.abort(), 5000);
+
+try {
+    const ast = await officeParser.parseOffice('large_scanned_file.pdf', {
+        abortSignal: controller.signal,
+        ocr: true
+    });
+} catch (err) {
+    if (err.name === 'AbortError') {
+        console.log('Parsing was cancelled.');
+    } else {
+        console.error('Parsing failed:', err);
+    }
+}
+```
+
+> [!IMPORTANT]
+> **AbortError Propagation**
+> When parsing is cancelled via `AbortSignal`, the parser rejects with a standard `AbortError` (a `DOMException` or an Error with `name: 'AbortError'`).
+> This error is *not* wrapped in standard OfficeParser error types so that you can reliably detect cancellation using `error.name === 'AbortError'`.
+
+> [!NOTE]
+> **Worker Cleanup on Abort**
+> If an OCR job is actively running in the background when the signal is aborted, `officeParser` automatically terminates the Tesseract worker process immediately and removes it from the pool to prevent thread/memory leaks.
+
+### Custom OCR Timeouts
+
+To prevent the parser from hanging indefinitely due to slow network connections (when downloading Tesseract language datasets) or complex image processing, you can configure granular timeouts under `ocrConfig.timeout`.
+
+```js
+const ast = await officeParser.parseOffice('scanned_document.pdf', {
+    ocr: true,
+    ocrConfig: {
+        timeout: {
+            workerLoad: 30000,    // 30s max to load worker & download language training files
+            recognition: 15000,   // 15s max per image text recognition
+            autoTerminate: 10000  // 10s of inactivity before terminating idle workers
+        }
+    }
+});
+```
+
+> [!TIP]
+> **Non-Fatal Timeout Recovery**
+> If `workerLoad` or `recognition` timeouts are exceeded, the parser will log a warning in `ast.warnings` and **continue parsing the rest of the document**. The overall promise resolves successfully with the text extracted from the document layers (rather than failing the entire parse).
+
+### `ast.to()`: Generate from AST
+
+The preferred way to convert a parsed AST to another format. Returns a `ConversionResult`.
+
+```ts
+// ConversionResult shape:
+// { value: string | Uint8Array | OfficeChunk[], messages: OfficeIssue[] }
+
+const { value: markdown, messages } = await ast.to('md');
+const { value: html }               = await ast.to('html', { includeFormatting: false });
+const { value: chunks }             = await ast.to('chunks', { strategy: 'fixed-size', chunkSize: 800 });
+const { value: pdfBytes }           = await ast.to('pdf'); // Uint8Array
+```
+
+### `ast.toText()`: Quick Text Extraction
+
+> [!WARNING]
+> `toText()` is **synchronous** and deprecated in favour of the async `ast.to('text')`. It remains
+> available for backward compatibility, but it is the older, less capable renderer: it has no
+> configuration at all, so footnote/endnote text and image placeholders are **unconditionally
+> dropped** rather than being something you can ask for. Prefer `.to('text')` for new code.
+
+```js
+const text = ast.toText(); // synchronous, returns plain string
+```
+
+#### Migrating to `.to('text')`
+
+`.to('text')` is asynchronous and configurable. Its defaults render tables as aligned grids, lists
+with markers/indentation, and include notes and image placeholders:
+
+```js
+// Default: aligned table grids, list markers, notes, image placeholders
+const { value } = await ast.to('text');
+
+// Deliberate opt-out: the combination closest to toText()'s shape
+const { value } = await ast.to('text', {
+    includeImages: false,
+    textConfig: { preserveLayout: false, renderNotes: false },
+});
+```
+
+**At its default configuration, `.to('text')` emits everything `toText()` emits.** Verified across
+every bundled fixture in all 12 supported formats, in both layout modes: no word `toText()` produces
+is missing from `.to('text')`. It additionally emits notes and image placeholders, which `toText()`
+never produces, and it renders merged table cells correctly (`toText()` glues a two-cell row into
+`OneThree`, where `.to('text')` gives `One Three`).
+
+Notes and images are **configuration, not intrinsic behavior**. They are on by default and you can
+turn them off. The real difference from `toText()` is that they are a choice at all:
+
+| | `toText()` | `.to('text')` | governed by |
+|---|---|---|---|
+| Tables | one cell per line | aligned grid, or tab-separated | `textConfig.preserveLayout` (default `true`) |
+| Lists | plain text | markers + indentation, or plain | `textConfig.preserveLayout` (default `true`) |
+| Footnotes/endnotes | never emitted | emitted by default | `textConfig.renderNotes` (default `true`) |
+| Image placeholders | never emitted | emitted by default | `includeImages` (default `true`) |
+| Chart data series | emitted | emitted | n/a |
+
+Nothing about `.to('text')` forces the richer output on you. The defaults simply start from the more
+complete document, and the opt-out above gets you back to `toText()`'s shape deliberately rather
+than by having no alternative.
+
+Spreadsheets (CSV/ODS/XLSX) are unaffected by `preserveLayout`: it governs `table`/`list` nodes,
+while spreadsheet content is `sheet`/`row`/`cell`. There the default aligned grid is the most
+faithful rendering.
+
+---
+
+## OfficeGenerator
+
+Use `OfficeGenerator.generate(ast, format, config?)` when you need to produce output from an already-parsed AST:
+
+```ts
+import { OfficeParser, OfficeGenerator } from 'officeparser';
+
+const ast = await OfficeParser.parseOffice('report.docx');
+
+// Convert to Markdown
+const { value: md } = await OfficeGenerator.generate(ast, 'md');
+
+// Convert to HTML with style mapping
+const { value: html } = await OfficeGenerator.generate(ast, 'html', {
+    includeFormatting: true,
+    styleMap: [
+        {
+            selector: { nodeType: 'paragraph', attributes: { style: 'Heading 1' } },
+            output: { tag: 'h1', classes: ['main-title'] }
+        }
+    ]
+});
+
+// Convert to CSV (spreadsheets)
+const { value: csv } = await OfficeGenerator.generate(ast, 'csv');
+```
+
+**Supported destinations:** `'text'` · `'md'` · `'html'` · `'csv'` · `'rtf'` · `'pdf'` · `'epub'` · `'chunks'`
+
+> [!NOTE]
+> **PDF generation** requires the optional `puppeteer` peer dependency:
+> ```bash
+> npm install puppeteer
+> ```
+>
+> **EPUB generation with images** requires `extractAttachments: true` on the parse step that
+> produced the AST — see [EPUB Support](#epub-support).
+
+---
+
+## OfficeConverter: One-Step API
+
+`OfficeConverter.convert()` combines parsing and generation in a single call. It automatically syncs parser options from generator config (e.g., enables `extractAttachments` when images are requested).
+
+```ts
+import { OfficeConverter } from 'officeparser';
+
+// Minimal usage
+const { value: markdown } = await OfficeConverter.convert('report.docx', 'md');
+
+// With config
+const { value: html, messages } = await OfficeConverter.convert('data.xlsx', 'html', {
+    parseConfig: {
+        ignoreNotes: true,
+        newlineDelimiter: '\n\n',
+    },
+    generatorConfig: {
+        includeFormatting: true,
+        styleMap: [
+            {
+                selector: { attributes: { style: { value: 'Header', operator: '~=' } } },
+                output: { tag: 'h2', classes: ['data-header'] }
+            }
+        ]
+    },
+    onWarning: (issue) => console.warn(`[${issue.code}] ${issue.message}`)
+});
+```
+
+> [!IMPORTANT]
+> The `OfficeConverterConfig` shape uses **nested** `parseConfig` and `generatorConfig` sub-objects.
+> Do **not** put parser or generator options at the top level; only `onWarning` lives there.
+
+---
+
+## Native RAG Chunking
+
+`officeParser` provides native document chunking for Retrieval-Augmented Generation (RAG) pipelines with three strategies:
+
+### Strategy 1: Document Structure (Default)
+Splits at natural AST boundaries (paragraphs, headings, pages, slides, sheets). Preserves logical flow.
+
+```ts
+const { value: chunks } = await OfficeConverter.convert('report.docx', 'chunks', {
+    generatorConfig: {
+        chunksConfig: {
+            strategy: 'document-structure',
+            splitBy: 'heading',    // 'paragraph' | 'heading' | 'page' | 'slide' | 'sheet'
+            maxChunkSize: 1500,
+            tableSplitStrategy: 'row', // repeats header row in every chunk, ideal for RAG
+        }
+    }
+});
+```
+
+### Strategy 2: Fixed-Size (Recursive)
+Splits by character count with overlap. Equivalent to LangChain's `RecursiveCharacterTextSplitter`.
+
+```ts
+const { value: chunks } = await OfficeConverter.convert('report.docx', 'chunks', {
+    generatorConfig: {
+        chunksConfig: {
+            strategy: 'fixed-size',
+            chunkSize: 1000,
+            chunkOverlap: 200,
+        }
+    }
+});
+console.log(`Generated ${chunks.length} chunks`);
+```
+
+### Strategy 3: Semantic
+Uses cosine similarity between sentence embeddings to find topic boundaries. Requires you to provide an `embeddingFunction`.
+
+```ts
+import OpenAI from 'openai';
+const openai = new OpenAI();
+
+const { value: chunks } = await OfficeConverter.convert('report.docx', 'chunks', {
+    generatorConfig: {
+        chunksConfig: {
+            strategy: 'semantic',
+            embeddingFunction: async (text) => {
+                const res = await openai.embeddings.create({
+                    input: text, model: 'text-embedding-3-small'
+                });
+                return res.data[0].embedding;
+            },
+            similarityThreshold: 0.8,
+            maxChunkSize: 2000,
+        }
+    }
+});
+```
+
+### The `OfficeChunk` Object
+
+`generate(ast, 'chunks')` (and `ast.to('chunks')`) resolves to a real `OfficeChunk[]` **array**, not a JSON string - serialize it to JSON/JSONL yourself if your pipeline needs that.
+
+Every chunk contains text and rich metadata for citations and filtered retrieval:
+
+```ts
+interface OfficeChunk {
+    text: string;
+    /** Rich metadata for filtered retrieval */
+    metadata: {
+        sourceType: string;       // e.g., 'docx', 'pdf'
+        pageNumber?: number;      // (PDF only)
+        slideNumber?: number;     // (PPTX only)
+        sheetName?: string;       // (XLSX only)
+        closestHeading?: string;  // Nearest heading above this chunk
+        isTableChunk?: boolean;   // True if part of a split table
+    };
+    startIndex?: number;          // Character offset (if addStartIndex: true)
+    endIndex?: number;            // End character offset (if addStartIndex: true)
+}
+```
+
+---
+
+## The AST Structure
+
+`OfficeParserAST` is a format-agnostic document representation:
+
+```text
+OfficeParserAST
+├── type: 'docx' | 'pdf' | 'xlsx' | 'csv' | 'md' | 'epub' | ...  (12 formats)
+├── metadata: { author, title, created, modified, keywords, customProperties, nativeProperties, styleMap, ... }
+├── content: [ OfficeContentNode ]
+│   ├── type: 'paragraph' | 'heading' | 'table' | 'list' | 'image' | 'chart' | 'comment' | 'admonition' | 'embed' | 'definitionList' | ...
+│   ├── text: string  (concatenated text of node + all descendants)
+│   ├── children: [ OfficeContentNode ]  (recursive structural children)
+│   ├── notes: [ OfficeContentNode ]     (footnotes/endnotes/slide notes attached to this node)
+│   ├── comments: [ OfficeContentNode ] (inline comments attached to this node)
+│   ├── formatting: { bold, italic, underline, color, size, font, alignment, ... }
+│   └── metadata: { level, listId, row, col, rowSpan, colSpan, backgroundColor, style, ... }
+├── auxiliary?: OfficeAuxiliaryContent   (out-of-band layout elements)
+│   ├── headers?: OfficeContentNode[]   (DOCX headers)
+│   ├── footers?: OfficeContentNode[]   (DOCX footers)
+│   └── slideMasters?: OfficeContentNode[] (PPTX slide masters)
+├── attachments: [ OfficeAttachment ]  (populated when extractAttachments: true)
+│   ├── type: 'image' | 'chart'
+│   ├── name: string
+│   ├── mimeType: string
+│   ├── data: string  (Base64)
+│   ├── ocrText?: string  (if ocr: true)
+│   └── chartData?: { title, dataSets, labels }
+├── warnings: OfficeIssue[]  (non-fatal issues from the parsing phase)
+├── to(format, config?)  (format: 'html'|'md'|'text'|'csv'|'rtf'|'pdf'|'chunks', returns { value, messages })
+└── ~~toText()~~             (Deprecated: use .to('text'); drops footnotes + image placeholders)
+```
+
+### `OfficeIssue`: Warning / Error Object
+
+All warnings and errors (from both parsing and generation) use this shape:
+
+```ts
+interface OfficeIssue {
+    type: 'warning' | 'info' | 'error';
+    code: OfficeWarningType | OfficeErrorType;  // typed enum, e.g. 'OCR_FAILED'
+    message: string;
+    node?: OfficeContentNode;  // the node that triggered the issue, if any
+    details?: any;             // original error or extra context
+}
+```
+
+Thrown errors carry the same object on `error.officeIssue`, so a failed parse is identified by
+the same stable `code` you would branch on for a warning, rather than by matching message text:
+
+```js
+try {
+    const ast = await officeParser.parseOffice(buffer, { fileType: 'docx' });
+} catch (err) {
+    switch (err.officeIssue?.code) {
+        case 'ZIP_NO_ENTRIES_FOUND':  // not a ZIP archive at all
+        case 'ZIP_TRUNCATED':         // cut off in transfer, entries incomplete
+        case 'REQUIRED_PART_MISSING': // readable ZIP, but not the format it claims
+            console.error('Unusable file:', err.officeIssue.message);
+            break;
+        default:
+            throw err;
+    }
+}
+```
+
+> [!IMPORTANT]
+> **A corrupt file throws; it does not parse as an empty document.** If an archive is not
+> readable, is truncated, or is missing the part its format requires (`word/document.xml`,
+> `xl/workbook.xml`, `ppt/presentation.xml`, ODF `content.xml`, the EPUB OPF), parsing rejects
+> with one of the codes above. An empty result therefore means the document really is empty.
+> Files that are legitimately empty still parse, and say so through `onWarning` /
+> `ast.warnings` (`NO_WORKSHEETS_FOUND` for a chartsheet-only workbook, `NO_SLIDES_FOUND` for a
+> presentation with no slides).
+
+---
+
+## Deep Dive: Document Components
+
+### 1. Lists
+
+```text
+List Node
+├── type: 'list'
+├── metadata: {
+│       listId: '1',          // items with the same listId belong to one logical list
+│       listType: 'ordered' | 'unordered',
+│       indentation: 0,       // nesting level (0-based)
+│       itemIndex: 0,         // sequential position within the list level
+│       paragraphIndentation: { left, hanging, right, firstLine }
+│   }
+└── children: [ Text content ]
+```
+
+> [!TIP]
+> Even if a list is interrupted by a regular paragraph, `itemIndex` keeps incrementing for the same `listId`, so numbering stays correct.
+
+### 2. Tables
+
+Tables follow a strict `table → row → cell` hierarchy:
+
+```text
+Table Node (type: 'table')
+└── children: Row Nodes (type: 'row')
+    └── children: Cell Nodes (type: 'cell')
+        ├── metadata: { row, col, rowSpan?, colSpan? }
+        └── children: [ Paragraph | List | Table | ... ]
+```
+
+- `row` / `col`: zero-based grid position
+- `rowSpan` / `colSpan`: merged cells (primarily ODF formats)
+- Cells can contain nested tables
+
+### 3. Images & OCR
+
+```text
+Image Node (type: 'image')
+├── metadata: { attachmentName: 'img1.png', altText: '...' }
+└── → Attachment: { data: 'base64...', ocrText: '...' }
+```
+
+- Set `extractAttachments: true` to populate `attachment.data`
+- Set `ocr: true` (requires `extractAttachments: true`) to populate `ocrText`
+
+### 4. Charts
+
+```text
+Chart Node (type: 'chart')
+├── metadata: { attachmentName: 'chart1.xml' }
+└── → Attachment: { chartData: { title, dataSets, labels } }
+```
+
+### 5. Text Formatting
+
+```ts
+formatting: {
+    bold?: boolean
+    italic?: boolean
+    underline?: boolean
+    strikethrough?: boolean
+    color?: string          // '#RRGGBB'
+    backgroundColor?: string
+    size?: string           // e.g. '12pt'
+    font?: string
+    subscript?: boolean
+    superscript?: boolean
+    alignment?: 'left' | 'center' | 'right' | 'justify'
+}
+```
+
+> [!NOTE]
+> On a **content node**, an absent flag and `false` mean the same thing — the flag is simply not
+> applied. On **`ast.metadata.styleMap`**, they differ: an absent flag means the style says nothing
+> about that property (so it inherits), while `false` means the style explicitly turns it off
+> (ODF's `fo:font-weight="normal"`, DOCX's `<w:b w:val="0"/>`). Code resolving inheritance itself
+> must test `=== undefined`, not truthiness, or it will treat "explicitly off" as "unspecified".
+
+### 6. Break Nodes (DOCX and ODF)
+
+When `includeBreakNodes: true`, break elements appear as nodes:
+
+```text
+Break Node (type: 'break')
+└── metadata: {
+        breakType: 'textWrapping' | 'page' | 'column' | 'lastRenderedPage' | 'carriageReturn',
+        clear?: 'all' | 'left' | 'none' | 'right'
+    }
+```
+
+> [!NOTE]
+> Break nodes have no `text` property, but `ast.toText()` and `ast.to('text')` automatically convert them to the configured newline delimiter.
+
+> [!NOTE]
+> DOCX writes breaks inline (`w:br`/`w:cr`), so they land as children of the paragraph. ODF instead
+> carries page and column breaks on the paragraph *style* (`fo:break-before`/`fo:break-after`), so those
+> are emitted as siblings around the paragraph rather than inside it. `<text:soft-page-break/>` maps onto
+> `lastRenderedPage`, the same type as DOCX's `w:lastRenderedPageBreak`.
+
+### 6b. Equations
+
+Equations are extracted from every format that can carry them and normalized to **LaTeX**, so a
+formula means the same thing whichever format it arrived in:
+
+| Source format | Markup in the file |
+|---|---|
+| DOCX, PPTX | OOXML `<m:oMath>` / `<m:oMathPara>` |
+| ODT, ODP, ODS | MathML inside the embedded formula object |
+| HTML, EPUB | native MathML `<math>` |
+| Markdown | `$inline$` / `$$block$$` |
+
+They all land as the same node:
+
+```text
+Code Node (type: 'code')
+├── text: '\\frac{1}{2}'          // LaTeX, whatever the source markup was
+└── metadata: { math: 'inline' | 'block' }
+```
+
+Fractions, sub/superscripts, radicals, delimiters, n-ary operators (sums, integrals), named
+functions, accents, bars, matrices and math alphabets (`ℝ`, `𝒜`, …) are all preserved. When a
+document supplies its own TeX source in an `<annotation encoding="application/x-tex">`, that is
+used verbatim in preference to anything reconstructed from the presentation markup.
+
+> [!NOTE]
+> Equation text is *structure*, not prose: a fraction whose numerator and denominator are simply
+> concatenated reads as a different number rather than as obviously-missing content. Consumers that
+> index document text should treat `code` nodes carrying `math` as opaque LaTeX rather than
+> splitting them as words.
+
+### 7. Document Metadata
+
+```ts
+ast.metadata = {
+    author?: string
+    title?: string
+    created?: Date
+    modified?: Date
+    description?: string
+    keywords?: string                            // NEW: Keywords from document properties
+    customProperties?: Record<string, any>       // User-defined metadata from the document
+    nativeProperties?: Record<string, any>       // NEW: All format-specific raw metadata
+    styleMap?: Record<string, TextFormatting>    // Named styles → formatting definitions
+    formatting?: TextFormatting                  // Document-wide defaults
+}
+```
+
+**Accessing native properties (format-specific metadata):**
+```js
+const ast = await officeParser.parseOffice('contract.docx');
+console.log(ast.metadata.nativeProperties);
+// DOCX: { Pages: 5, Application: 'Microsoft Word' }
+// HTML: { description: 'My page', 'og:title': 'Title' }
+// PDF:  { Title: 'Report', XMP: { ... } }
+```
+
+### 8. Admonitions, Embeds & Definition Lists
+
+```text
+Admonition Node (type: 'admonition')
+├── metadata: { admonitionType: 'note' | 'tip' | 'important' | 'warning' | 'caution', title?: string }
+└── children: [ Paragraph | List | ... ]   (block content)
+
+Embed Node (type: 'embed')
+└── metadata: { embedType: 'youtube' | 'iframe', videoId?: string, url?: string, width?: string, height?: string, align?: string }
+
+Definition List Node (type: 'definitionList')
+└── children:
+    ├── Definition Term (type: 'definitionTerm')
+    └── Definition Description (type: 'definitionDescription')
+```
+
+- `admonition` round-trips through both Markdown (`> [!NOTE]` / `:::note ... :::`) and HTML (`<div class="admonition admonition-note" data-type="note">`)
+- `embed` models YouTube videos and generic iframes. Markdown form is selected by `mdConfig.dialect.embeds`: `'html'` (default; the `<div data-youtube-video>` / `<iframe>` block), `'directive'` (a `::youtube[…]{…}` / `::embed[…]{…}` leaf directive), `'link'`, or `'thumbnail'` (YouTube-only clickable preview). A generic iframe is captured only under `htmlParserConfig.preserveIframes` (the trust input) and can be emitted as an inert click-to-load placeholder via `htmlConfig.gatedEmbeds`. The `'directive'` form is an editor round-trip format, not GitHub-rendered
+- Abbreviations (`*[HTML]: Hypertext Markup Language`) are stored as `TextMetadata.abbreviationTitle` on the abbreviated text node rather than as a separate node type
+
+---
+
+## Markdown Dialect Support
+
+Beyond CommonMark/GFM basics, `MarkdownParser`/`MarkdownGenerator` support an extended dialect aimed at
+full-fidelity round-tripping with rich Markdown editors. Every construct below parses to a first-class
+AST node/metadata field and regenerates back to the canonical syntax shown, so `.md → AST → .md` is
+idempotent and `.md → AST → HTML → AST → .md` survives unchanged.
+
+| Feature | Markdown syntax | AST representation |
+|---|---|---|
+| Task lists (GFM) | `- [x] Done` / `- [ ] Todo` | `ListMetadata.isTask` / `.checked` |
+| Admonitions | `> [!NOTE]` (also accepts GLFM `:::note ... :::` on import) | `type: 'admonition'`, `AdmonitionMetadata` |
+| Footnotes | `Text[^1]` + `[^1]: Definition` | `type: 'note'`, keyed by footnote id |
+| Definition lists | `Term\n: Definition` | `type: 'definitionList'` / `'definitionTerm'` / `'definitionDescription'` |
+| Abbreviations | `*[HTML]: Hypertext Markup Language` | `TextMetadata.abbreviationTitle` |
+| Attribute lists | `![alt](img.png){width=50% .centered}` | `ImageMetadata.width` / `.align`, `TableMetadata.align` |
+| Citations | `[@smith2024]` | `TextMetadata.citationKey` |
+| Wikilinks | `[[Page]]` / `[[Page\|Alias]]` | `TextMetadata.wikilink`, `.link`, `.linkType` |
+| Highlight | `==text==` | `TextMetadata.backgroundColor` |
+| Link/image titles | `[text](url "Title")` / `![alt](img.png "Title")` | `TextMetadata.title` / `ImageMetadata.title` |
+| Inline/block math | `$E=mc^2$` / `` $$...$$ `` | `type: 'code'`, `CodeMetadata.math` (`'inline' \| 'block'`) |
+| Embeds | `::youtube[Label]{id=… width=… align=…}` / `::embed[Label]{src=… …}` (leaf directive; see `mdConfig.dialect.embeds`) | `type: 'embed'`, `EmbedMetadata` |
+| Frontmatter arrays | `tags: [a, b]` or `tags: ["a","b"]` | Real array in `metadata.customProperties`/`nativeProperties` |
+| MDX components (import-only) | `<Component prop="x">...</Component>` | Stripped; inner Markdown is kept. Never generated back. |
+
+> [!NOTE]
+> MDX/JSX stripping is one-directional (parse-only) — officeParser never authors JSX back into Markdown.
+> Wikilink enable/disable and citekey→bibliography resolution are application-level concerns; officeParser
+> always parses/generates the syntax itself.
+
+The same round-trip fidelity extends to HTML, so content saved from a rich-text editor survives a
+save→reload cycle:
+
+| HTML attribute | AST field | Notes |
+|---|---|---|
+| `data-width` / `data-align` / inline `style="width:…"` on `<img>` | `ImageMetadata.width` / `.align` | |
+| `data-align` on `<table>` | `TableMetadata.align` | Emitted/parsed as per-column GFM markers (`:---`, `:---:`, `---:`); alignment rides `CellMetadata.align` |
+| `title` on `<a>` / `<img>` | `TextMetadata.title` / `ImageMetadata.title` | Survives both directions (`[text](url "Title")` in Markdown) |
+| `colspan` / `rowspan` on `<td>`/`<th>` | `CellMetadata.colSpan` / `.rowSpan` | Previously dropped on HTML import — merged cells now survive a save→reload cycle |
+| `<div data-youtube-video="ID">` / `<iframe src="...youtube.com...">` | `type: 'embed'` | |
+| `<ul data-type="taskList">` / `<li data-checked>` | `ListMetadata.isTask` / `.checked` | |
+
+---
+
+## EPUB Support
+
+EPUB files are ZIP archives of XHTML content plus an OPF manifest — `EpubParser` unzips the archive,
+resolves the spine's reading order from `content.opf`, and parses each XHTML document through the
+existing `HtmlParser`, so EPUB content shares the same AST shape (and the same Markdown-dialect
+fidelity above) as every other format. Dublin Core metadata (`dc:title`, `dc:creator`, `dc:description`,
+`dc:subject`, `dc:date`, `dc:publisher`, `dc:language`, `dc:identifier`) maps into `ast.metadata` /
+`ast.metadata.nativeProperties`, and cover art is exposed via `metadata.customProperties.coverImageName`.
+
+`EpubGenerator` renders the AST through `HtmlGenerator` and packages the result as a minimal, valid
+EPUB 3 (`mimetype`, `META-INF/container.xml`, an OPF manifest, a nav document, and one XHTML chapter).
+
+> [!IMPORTANT]
+> **Pass `extractAttachments: true` when converting to or from EPUB if the document has images.**
+> Without it, the parser never pulls embedded image bytes out of the source document, so there is
+> nothing for the EPUB generator to package — images silently disappear even though everything else
+> converts correctly. Images are packaged as real zip entries (`OEBPS/images/...`) declared in the OPF
+> manifest, not `data:` URIs — most EPUB reading systems do not render `data:` URIs in image `src`.
+>
+> This only matters for the two-step `OfficeParser.parseOffice()` → `OfficeGenerator.generate()` API
+> and the CLI. [`OfficeConverter.convert()`](#officeconverter-one-step-api) enables `extractAttachments`
+> automatically unless you explicitly set `generatorConfig.includeImages: false`.
+>
+> ```bash
+> npx officeparser book.docx --extractAttachments --to=epub --output=book.epub
+> ```
+
+---
+
+## Performance Highlights
+
+Key internal optimizations shipped in recent versions:
+
+- **OpenOffice (ODP)**: Up to **23× faster** parsing via optimized XML pre-parsing and style caching
+- **Excel Memory**: Resolved O(n) memory overhead on large sparse spreadsheets using iterative stream-based parsing
+- **RTF Parser**: Rewrote string accumulation loop to eliminate O(n²) bottleneck in large files
+- **Table Fidelity (DOCX)**: Native support for vertical cell merging (`vMerge`) and horizontal spanning (`gridSpan`)
+
+---
+
+## Advanced AST Usage
+
+### Extract all headings
+```js
+const headings = ast.content.filter(n => n.type === 'heading' && n.metadata?.level === 1);
+console.log(headings.map(h => h.text));
+```
+
+### Extract comments
+```ts
+// Comments can be attached to any nested node, so we must traverse recursively
+const printComments = (nodes: OfficeContentNode[]) => {
+    nodes.forEach(node => {
+        if (node.comments) {
+            node.comments.forEach(c => {
+                console.log(`Comment by ${c.metadata?.author}: ${c.text}`);
+            });
+        }
+        if (node.children) {
+            printComments(node.children);
+        }
+    });
+};
+
+printComments(ast.content);
+```
+
+Set `ignoreComments: true` to skip extraction.
+
+### Extract footnotes, endnotes & slide notes
+```ts
+// Slide speaker notes (PPTX) live on the slide node itself
+const slide = ast.content.find(n => n.type === 'slide');
+console.log(slide?.notes?.map(n => n.text));
+
+// Footnotes and endnotes (DOCX/RTF) can be deeply nested, so we traverse recursively:
+const printNotes = (nodes: OfficeContentNode[]) => {
+    nodes.forEach(node => {
+        if (node.notes) {
+            node.notes.forEach(note => console.log(note.text));
+        }
+        if (node.children) {
+            printNotes(node.children);
+        }
+    });
+};
+
+printNotes(ast.content);
+```
+
+> [!IMPORTANT]
+> `putNotesAtLast` is **deprecated**. Notes are always attached via `node.notes`; this flag has no effect and will be removed in a future major version.
+
+### Access headers, footers & slide masters
+```ts
+// These are NOT in ast.content; use ast.auxiliary
+console.log(ast.auxiliary?.headers?.map(h => h.text));   // DOCX headers
+console.log(ast.auxiliary?.footers?.map(f => f.text));   // DOCX footers
+console.log(ast.auxiliary?.slideMasters?.length);         // PPTX slide masters
+```
+
+Set `ignoreHeadersAndFooters: true` or `ignoreSlideMasters: true` to skip extraction.
+
+### Extract images with OCR text
+```js
+const ast = await officeParser.parseOffice('report.docx', { extractAttachments: true, ocr: true });
+ast.attachments.filter(a => a.mimeType?.startsWith('image/')).forEach(img => {
+    console.log(`${img.name}: ${img.ocrText ?? 'no OCR'}`);
+});
+```
+
+### Extract tables to CSV manually
+```js
+ast.content.filter(n => n.type === 'table').forEach((table, i) => {
+    const csv = table.children
+        .filter(r => r.type === 'row')
+        .map(r => r.children.filter(c => c.type === 'cell')
+            .map(c => `"${c.text.replace(/"/g, '""')}"`)
+            .join(','))
+        .join('\n');
+    console.log(`Table ${i + 1}:\n${csv}`);
+});
+```
+
+### Find all bold text runs
+```js
+function findBold(nodes) {
+    return nodes.flatMap(n => [
+        ...(n.type === 'text' && n.formatting?.bold ? [n.text] : []),
+        ...(n.children ? findBold(n.children) : [])
+    ]);
+}
+console.log(findBold(ast.content));
+```
+
+### Extract footnotes / endnotes
+```js
+function extractNotes(nodes) {
+    return nodes.flatMap(n => [
+        ...(n.type === 'note' ? [{ id: n.metadata.noteId, text: n.text, type: n.metadata.noteType }] : []),
+        ...(n.children ? extractNotes(n.children) : [])
+    ]);
+}
+console.log(extractNotes(ast.content));
+```
+
+### Search for a term (TypeScript)
+```ts
+import { OfficeParser } from 'officeparser';
+
+async function contains(filePath: string, term: string): Promise<boolean> {
+    const ast = await OfficeParser.parseOffice(filePath);
+    return (await ast.to('text')).value.includes(term);
+}
+```
+
+---
+
+## Configuration Reference
+
+### OfficeParserConfig
+
+Pass as the second argument to `parseOffice(file, config)`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `newlineDelimiter` | `string` | `'\n'` | Delimiter inserted between lines in text output |
+| `ignoreNotes` | `boolean` | `false` | Ignore footnotes/endnotes (DOCX, RTF) and speaker notes (PPTX/ODP) |
+| `ignoreComments` | `boolean` | `false` | **New**: Ignore inline comments/annotations (DOCX, XLSX, PPTX), attached by default via `node.comments[]` |
+| `ignoreHeadersAndFooters` | `boolean` | `false` | **New**: Skip DOCX headers & footers (populated in `ast.auxiliary.headers/footers` by default) |
+| `ignoreSlideMasters` | `boolean` | `false` | **New**: Skip PPTX slide masters (populated in `ast.auxiliary.slideMasters` by default) |
+| ~~`putNotesAtLast`~~ | `boolean` | `false` | **Deprecated**: Notes are now attached via `node.notes[]`. This flag has no effect |
+| `extractAttachments` | `boolean` | `false` | Populate `ast.attachments` with Base64 images/charts |
+| `ocr` | `boolean` | `false` | Run Tesseract OCR on images (requires `extractAttachments: true`) |
+| `ocrConfig` | `OcrConfig` | `{}` | OCR worker pool settings (see [OCR section](#ocr-scheduler--resource-management)) |
+| `includeRawContent` | `boolean` | `false` | Attach raw XML/RTF source to each node |
+| `serializeRawContent` | `boolean` | `true` | Re-serialize XML to clean strings (only if `includeRawContent: true`) |
+| `preserveXmlWhitespace` | `boolean` | `false` | Preserve original XML whitespace during serialization |
+| `includeBreakNodes` | `boolean` | `false` | Include typed break nodes: DOCX `w:br`/`w:cr`, ODF `fo:break-before`/`fo:break-after` and `text:soft-page-break` |
+| `ignoreInternalLinks` | `boolean` | `false` | Strip bookmarks and internal cross-references from AST |
+| `fileType` | `SupportedFileType \| null` | `null` | **Required for text-based binary data** (`'md'`, `'html'`, `'csv'`) as these lack magic bytes. |
+| `csvDelimiter` | `string` | `','` | Input delimiter when parsing CSV files |
+| `decompressionLimits` | `DecompressionLimits` | `{ maxUncompressedBytes: 512MB, maxZipEntries: 10000, maxTableCells: 1000000 }` | **New**: Limits applied during ZIP extraction (and ODF cell expansion) to protect against excessive memory and resource usage |
+| `htmlParserConfig` | `HtmlParserConfig` | `{}` | HTML/XHTML/EPUB parsing options. `preserveAttributes` (`boolean`, default `false`): keep generic source attributes no typed field consumed on `node.htmlAttributes`. `preserveIframes` (`boolean \| string[]`, default `false`): preserve non-YouTube `<iframe>` embeds (otherwise dropped) as `embed` nodes — `true` for any, or a hostname allowlist; the src is scheme-checked on generation. `embedFolkForms` (`boolean`, default `false`): opt in to importing ambiguous folk embed forms (Obsidian `![](youtube-url)`, thumbnail-link) as YouTube embeds |
+| `pdfWorkerSrc` | `string` | CDN (jsDelivr) | Path/URL to `pdf.worker.min.mjs` (required in browser) |
+| `onWarning` | `(issue: OfficeIssue) => void` | — | Callback for non-fatal parsing issues |
+| `abortSignal` | `AbortSignal \| null` | `null` | Optional signal to cancel parsing (rejects with AbortError) |
+| ~~`outputErrorToConsole`~~ | `boolean` | `false` | **Deprecated.** Use `onWarning` instead |
+
+---
+
+### GeneratorConfig (Common)
+
+Options shared by all generator formats. Pass to `OfficeGenerator.generate(ast, format, config)` or `ast.to(format, config)`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `includeFormatting` | `boolean` | `true` | Include bold/italic/colors/sizes in output |
+| `generateIds` | `boolean` | `true` | Slug-based heading anchors: `id` attributes on HTML headings, and a `{#slug}` suffix on Markdown headings (`# Title {#title}`, kramdown/Pandoc). Set `false` to omit both — useful when the Markdown is rendered by GFM/CommonMark, which show `{#slug}` as literal text. Applies to all generator formats (it is a top-level option, not under `mdConfig`/`htmlConfig`). |
+| `renderMetadata` | `boolean` | `false` | Render title/author as visible header block |
+| `metadataOverrides` | `MetadataOverrides` | `{}` | Override the metadata embedded in the output, merged per field over `ast.metadata` |
+| `includeImages` | `boolean` | `true` | Include image nodes in output |
+| `includeCharts` | `boolean` | `true` | Include interactive charts (HTML only) |
+| `ignoreInternalLinks` | `boolean` | `false` | Strip bookmarks and internal anchors from output |
+| `ignoreDefaultStyleMap` | `boolean` | `false` | Disable built-in style mappings (e.g., "Heading 1" → h1) |
+| `styleMap` | `string[] \| StructuredStyleMapping[]` | `[]` | Custom semantic style mappings |
+| `onNode` | `(node) => string \| false \| void` | — | Per-node callback for filtering, overriding, or mutating |
+| `onWarning` | `(issue: OfficeIssue) => void` | — | Callback for non-fatal generation issues |
+| `abortSignal` | `AbortSignal \| null` | `null` | Optional signal to cancel the generation operation (rejects with AbortError) |
+
+---
+
+### `onNode` Callback: Advanced Node Manipulation
+
+Called for **every node** in the AST during generation. Can be `async`.
+
+| Return value | Effect |
+|---|---|
+| `false` | Skip this node and all its children |
+| `string` | Use this string as the output for this node, skip default logic |
+| `void` | Proceed with default rendering (mutations to `node` are applied) |
+
+```ts
+const { value: md } = await ast.to('md', {
+    onNode: async (node) => {
+        // Skip all images
+        if (node.type === 'image') return false;
+
+        // Redact secrets (mutate then proceed)
+        if (node.text?.includes('SECRET_KEY')) {
+            node.text = node.text.replace(/SECRET_KEY: \w+/, 'SECRET_KEY: [REDACTED]');
+        }
+
+        // Custom rendering for a specific style
+        if (node.metadata?.style === 'Callout') {
+            return `> [!INFO]\n> ${node.text}`;
+        }
+    }
+});
+```
+
+---
+
+### `styleMap`: Semantic Style Mapping
+
+Maps document style names to semantic output elements. Two formats supported:
+
+#### Structured Objects (Recommended)
+
+```ts
+styleMap: [
+    {
+        selector: { nodeType: 'paragraph', attributes: { style: 'Heading 1' } },
+        output: { tag: 'h1', classes: ['main-title'], attributes: { id: 'top' } }
+    },
+    {
+        // '~=' operator matches if the word 'Quote' appears anywhere in the style name
+        selector: { attributes: { style: { value: 'Quote', operator: '~=' } } },
+        output: { tag: 'blockquote', fresh: true }
+    }
+]
+```
+
+`fresh: true` prevents the generator from merging adjacent nodes of the same tag into one block.
+
+#### Legacy String DSL
+
+Compatible with `mammoth.js` style maps:
+
+```js
+styleMap: [
+    "p[style-name='Heading 1'] => h1",
+    "p[style~='Title'] => h2",
+    "p[style-name='Quote'][lang='en'] => blockquote"
+]
+```
+
+---
+
+### HtmlGeneratorConfig
+
+Pass as `htmlConfig` inside `GeneratorConfig`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `standalone` | `boolean \| StandaloneConfig` | `true` | Controls the HTML "document envelope" — see below |
+| `chartJsSrc` | `string` | jsDelivr CDN | URL for the Chart.js library |
+| `containerWidth` | `string \| number` | `'auto'` | Max width of the content container. Positive number (px), CSS length string (`'900px'`, `'100%'`, `'60vw'`), or `'auto'`. Invalid values fall back to `'auto'` with an `INVALID_CONTAINER_WIDTH` warning |
+| `customCss` | `string` | `''` | Raw CSS injected into the `<style>` block; use this to override built-in styles |
+| `injections.headStart` | `string` | `''` | Raw HTML injected after `<head>` |
+| `injections.headEnd` | `string` | `''` | Raw HTML injected before `</head>` |
+| `injections.bodyStart` | `string` | `''` | Raw HTML injected after `<body>` |
+| `injections.bodyEnd` | `string` | `''` | Raw HTML injected before `</body>` |
+| `sourceAttributes` | `boolean` | `false` | Carry each rich node's raw source in a `data-*` attribute (undelimited text), so attribute-driven consumers can rehydrate it: `data-wikilink`/`data-target`/`data-alias` on wikilinks, a `<span class="citation" data-key>` for citations, the LaTeX in `data-math`, and a `<div class="mermaid" data-mermaid>` for mermaid. Off = byte-identical to before; the parser reads every shape it emits. Forced off for PDF/EPUB |
+
+#### `standalone`: granular envelope control
+
+`standalone` conflates several independent decisions: whether to emit the `<!doctype>/<html>/<head>/
+<body>` shell, how CSS is delivered, and whether to inject scripts/meta tags/injections. The boolean
+shorthand still works — **`true`/omitted turns every part on** (a complete document); **`false` turns
+every part off** (a bare content fragment, safe to drop into a page you don't control). Pass an
+object instead for granular control; any field you omit defaults to its "on" (standalone) value:
+
+| `StandaloneConfig` field | Type | Default | Description |
+|--------|------|---------|-------------|
+| `document` | `boolean` | `true` | Wrap in `<!DOCTYPE html><html><head>…</head><body>…</body></html>` |
+| `metaTags` | `boolean` | `true` | Emit `<title>`/`<meta>` tags. Only meaningful when `document` is true |
+| `styles` | `'full' \| 'scoped' \| 'none'` | `'full'` | See below |
+| `scripts` | `boolean` | `true` | Emit the Chart.js CDN loader and spreadsheet-interactivity `<script>` tags |
+| `headInjections` | `boolean` | `true` | Apply `injections.headStart`/`headEnd`. Only meaningful when `document` is true |
+| `bodyInjections` | `boolean` | `true` | Apply `injections.bodyStart`/`bodyEnd` — applies even to a bare fragment |
+
+`styles` controls how the built-in stylesheet is delivered:
+- **`'full'`** — the complete stylesheet using global selectors (`body`, `h1`, `table`, …). This is
+  what `standalone: true` has always emitted.
+- **`'scoped'`** — the same styling, scoped under the fragment's own wrapper via CSS `@scope` so it
+  cannot leak onto a host page's elements. Requires a modern engine (Chrome 118+, Safari 17.4+,
+  Firefox 128+); for universal support use `'none'` (bring your own CSS) or `'full'`.
+- **`'none'`** — no stylesheet at all; the host page (or rich-text editor, or EPUB reader) supplies
+  its own styling.
+
+```js
+// A styled fragment to embed in your own page, without a document shell:
+await ast.to('html', { htmlConfig: { standalone: { document: false } } });
+
+// The same, but with styles scoped so they can't leak onto your page's own elements:
+await ast.to('html', { htmlConfig: { standalone: { document: false, styles: 'scoped' } } });
+
+// A completely bare fragment (no shell, no styles, no scripts) — e.g. for a rich-text editor:
+await ast.to('html', { htmlConfig: { standalone: false } });
+```
+
+> [!NOTE]
+> **Behavior change from `standalone: false`:** previously this emitted a fragment with a *global,
+> unscoped* `<style>` block. It now emits a genuinely bare fragment (no `<style>` at all), matching
+> "every part off." If you relied on the old styled-fragment behavior, pass
+> `{ document: false }` (or `{ document: false, styles: 'full' }`) instead.
+
+### MdGeneratorConfig
+
+Pass as `mdConfig` inside `GeneratorConfig`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `fallbackToHtml` | `boolean \| FallbackToHtmlConfig` | `true` | Use HTML tags for features Markdown cannot represent (underlines, merged table cells, embeds, etc.). Pass an object for per-feature control. `cellLineBreaks`/`itemLineBreaks` (default on) join multi-line table-cell / multi-paragraph list-item content with `<br>` instead of a space. `inlineFormatting` (default `false`, opt-in even when the boolean is `true`) additionally round-trips inline color/highlight/font-size as `<span style="...">` runs. |
+| `dialect` | `MarkdownDialectPreset \| MarkdownDialectConfig` | `'extended'` | Which native syntax to emit for constructs that differ across targets (GitHub/GitLab/Obsidian/Pandoc/CommonMark). Each capability is typed by the syntax it selects (e.g. `strikethrough: 'tilde'`, `highlight: 'equals'`, `admonitions: 'blockquote'`), with `'none'` to turn it off. See [Markdown Dialect Support](#markdown-dialect-support). The old `boolean` toggles and admonition flavour names (`'github'`/`'gitlab'`/`'pandoc'`) still work but are deprecated. |
+
+### PdfGeneratorConfig
+
+Pass as `pdfConfig` inside `GeneratorConfig`. Requires the optional `puppeteer` peer dependency.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `format` | `string` | `'A4'` | Paper format (`'A4'`, `'Letter'`, `'Legal'`, etc.) |
+| `width` | `string \| number` | `''` | Paper width (e.g., `'5in'`, `'3cm'`) or pixels |
+| `height` | `string \| number` | `''` | Paper height (e.g., `'5in'`, `'3cm'`) or pixels |
+| `landscape` | `boolean` | `false` | Landscape page orientation |
+| `printBackground` | `boolean` | `true` | Print background graphics |
+| `margin` | `object` | `{0,0,0,0}` | Page margins (`top`, `right`, `bottom`, `left`) |
+| `displayHeaderFooter` | `boolean` | `false` | Show print header/footer |
+| `headerTemplate` | `string` | `''` | HTML template for the print header |
+| `footerTemplate` | `string` | `''` | HTML template for the print footer |
+| `scale` | `number` | `1` | Rendering scale factor |
+| `launchOptions` | `object` | headless defaults | Puppeteer launch options (e.g., `executablePath`) |
+| `timeout` | `number` | `30000` | PDF rendering timeout in milliseconds. Set to `0` to disable. |
+
+### CsvGeneratorConfig
+
+Pass as `csvConfig` inside `GeneratorConfig`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `sheets` | `string` | `''` | Sheet range to export: `'1'`, `'1-3'`, `'1,3'` (1-based). Empty = all sheets |
+| `mergeSheets` | `boolean` | `true` | Merge all sheets into one CSV. If `false`, returns a ZIP archive |
+| `columnDelimiter` | `string` | `','` | Output column delimiter |
+
+### TextGeneratorConfig
+
+Pass as `textConfig` inside `GeneratorConfig`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `newlineDelimiter` | `string` | `'\n'` | String inserted between structural blocks |
+| `preserveLayout` | `boolean` | `true` | Render tables with aligned columns using whitespace |
+| `renderNotes` | `boolean` | `true` | Append the collected footnote/endnote section |
+
+### metadataOverrides
+
+Part of the common `GeneratorConfig` (not format-specific). Overrides the metadata embedded in
+generated output, applied **per field** on top of `ast.metadata`, so setting one field leaves the
+rest of the parsed metadata intact. `ast.metadata` itself is never mutated, so the same AST can be
+generated repeatedly with different metadata.
+
+| Field | Type | Written as |
+|-------|------|-----------|
+| `title` | `string` | HTML `<title>`/`<meta>`, EPUB `dc:title`, Markdown frontmatter, RTF `\title` |
+| `author` | `string` | HTML `<meta name="author">`, EPUB `dc:creator`, frontmatter, RTF `\author` |
+| `description` | `string` | HTML `<meta name="description">`, EPUB `dc:description`, frontmatter |
+| `subject` / `keywords` / `lastModifiedBy` | `string` | Where the destination format has a slot |
+| `created` / `modified` | `Date` | HTML `dcterms.*`, EPUB `dcterms:modified`, frontmatter |
+| `language` | `string` | EPUB `dc:language` |
+| `custom` | `Record<string, string \| number \| boolean \| Date>` | HTML `<meta name="custom:KEY">`, Markdown frontmatter |
+
+```js
+// Rebrand the output without touching the parsed document
+const { value } = await ast.to('html', {
+    metadataOverrides: { title: 'Q4 Report', author: 'Acme Inc', custom: { department: 'Finance' } },
+});
+```
+
+#### Dates
+
+`created` and `modified` take a `Date`. When `modified` is unset, officeParser uses the source
+document's own `ast.metadata.modified`, falling back to the current time only if the document has
+none. Dates outside the 1980-2099 range representable in a ZIP timestamp are clamped where EPUB
+writes them onto zip entries.
+
+```js
+const { value } = await ast.to('epub', {
+    metadataOverrides: { modified: new Date('2024-01-01T00:00:00Z') },
+});
+```
+
+#### Not every format can represent every field
+
+HTML `<meta>` tags and Markdown frontmatter are open vocabularies and accept anything. EPUB's OPF
+is a closed Dublin Core vocabulary and RTF's `\info` group has a fixed set of control words, so a
+`custom` entry has nowhere to go in either. Rather than dropping it silently, those generators
+report it through `onWarning` (`OfficeWarningType.METADATA_NOT_REPRESENTABLE`) and continue; the
+named fields still apply.
+
+---
+
+### OfficeConverterConfig
+
+Configuration for `OfficeConverter.convert(file, format, config)`.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `parseConfig` | `OfficeParserConfig` | Settings for the parsing phase |
+| `generatorConfig` | `GeneratorConfig` | Settings for the generation phase |
+| `onWarning` | `(issue: OfficeIssue) => void` | Global warning callback (overrides phase-specific ones) |
+
+---
+
+### ChunkingConfig
+
+`ChunkingConfig` is a **discriminated union**: the available options depend on the `strategy` field.
+
+#### Common Options (all strategies)
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `strategy` | `string` | `'document-structure'` | Chunking strategy |
+| `stripWhitespace` | `boolean` | `true` | Trim leading/trailing whitespace from each chunk |
+| `includeMetadata` | `boolean` | `true` | Include page/slide/heading metadata in each chunk |
+| `addStartIndex` | `boolean` | `false` | Add `startIndex` character offset to chunk metadata |
+| `lengthFunction` | `(text) => number` | `text.length` | Custom size measurer (e.g., token counter) |
+| `sentenceBoundaryRegex` | `string \| RegExp` | `/[.!?。！？]/` | Custom regex for sentence boundary detection |
+| `abbreviations` | `string[]` | common list | Abbreviations to skip when splitting on `.` |
+
+#### `strategy: 'fixed-size'`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `chunkSize` | `number` | `1000` | Maximum characters per chunk |
+| `chunkOverlap` | `number` | `200` | Character overlap between consecutive chunks |
+| `separators` | `string[]` | `['\n\n','\n',' ','']` | Ordered list of separators to try |
+
+#### `strategy: 'document-structure'`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `splitBy` | `string` | `'paragraph'` | `'paragraph'` · `'heading'` · `'page'` · `'slide'` · `'sheet'` |
+| `maxChunkSize` | `number` | `1000` | Max characters per chunk (oversized units are split recursively) |
+| `tableSplitStrategy` | `string` | `'row'` | `'row'` (repeats header in each chunk) or `'flatten'` |
+
+#### `strategy: 'semantic'`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `embeddingFunction` | `(text) => Promise<number[]>` | **required** | Async embedding function |
+| `similarityThreshold` | `number` | `0.8` | Cosine similarity threshold; lower = fewer boundaries |
+| `maxChunkSize` | `number` | `2000` | Max characters even if similarity stays high |
+| `bufferSize` | `number` | `1` | Surrounding sentences used when computing similarity |
+| `embeddingBatchSize` | `number` | `50` | Sentences per embedding API batch |
+| `timeout` | `number` | `10000` | Timeout in milliseconds for individual embedding API calls. Set to `0` to disable. |
+
+---
+
+## OCR Scheduler & Resource Management
+
+When `ocr: true` is set, `officeParser` maintains an intelligent **Smart Worker Pool** backed by Tesseract.js:
+
+- **Dynamic Affinity**: Workers persist with their last-used language, avoiding re-initialization overhead.
+- **LRU Re-allocation**: When a new language is requested and the pool is full, the Least Recently Used idle worker is re-initialized.
+- **Auto-Termination**: Workers shut down after 10 seconds of inactivity (configurable via `ocrConfig.autoTerminateTimeout`).
+
+### OCR Config (`ocrConfig`)
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `language` | `string` | `'eng'` | Tesseract language code(s), e.g. `'eng+fra'` |
+| `workerPath` | `string` | `''` | Custom path to Tesseract worker script |
+| `corePath` | `string` | `''` | Custom path to Tesseract core script |
+| `langPath` | `string` | `''` | Custom path for language data files |
+| `timeout` | `OcrTimeoutConfig` | `{}` | Consolidated timeouts: `autoTerminate`, `workerLoad`, `recognition` |
+| ~~`autoTerminateTimeout`~~ | `number` | `10000` | **Deprecated.** Use `timeout.autoTerminate` instead |
+
+See all language codes at [tesseract-ocr.github.io](https://tesseract-ocr.github.io/tessdoc/Data-Files).
+
+### `OfficeParser.terminateOcr()`
+
+In **short-lived scripts** (CLI tools, one-off automation), call `terminateOcr()` after processing to bypass the idle timer and exit immediately:
+
+```js
+const officeParser = require('officeparser');
+
+const ast = await officeParser.parseOffice('file.pdf', { ocr: true });
+// ... process results ...
+await officeParser.terminateOcr(); // immediate exit
+```
+
+> [!TIP]
+> The built-in CLI (`npx officeparser ...`) handles this automatically.
+> Only call it manually in your own scripts.
+
+---
+
+## Browser Usage
+
+Four bundles are available in the `dist/` directory:
+
+| Bundle | Type | Description |
+|--------|------|-------------|
+| `officeparser.browser.mjs` | ESM | Standard ESM bundle for modern bundlers (Vite, Webpack, Next.js). |
+| `officeparser.browser.iife.js` | IIFE | Standard UMD bundle for direct `<script>` inclusion (exposes global `officeParser`). |
+| `officeparser.browser.slim.mjs` | ESM | Slim ESM bundle with Tesseract.js (OCR) stubbed out and remote CDN URLs removed. |
+| `officeparser.browser.slim.iife.js` | IIFE | Slim UMD bundle with Tesseract.js (OCR) stubbed out and remote CDN URLs removed. |
+
+### Manifest V3 & Extension Compliance (Slim Bundles)
+For strict browser environments like **Chrome/Edge Manifest V3 extensions**, remotely hosted code is forbidden. Use the **slim** bundles (`officeparser.browser.slim.mjs` or `officeparser.browser.slim.iife.js`) as they do not include default remote CDN urls or the Tesseract OCR engine.
+
+### ESM (Vite / Webpack / Next.js)
+
+```js
+import { OfficeParser } from 'officeparser';
+
+const handleFile = async (event) => {
+    const file = event.target.files[0];
+    const buffer = await file.arrayBuffer();
+    const ast = await OfficeParser.parseOffice(new Uint8Array(buffer));
+    console.log((await ast.to('text')).value);
+};
+```
+
+### Script Tag
+
+```html
+<script src="dist/officeparser.browser.iife.js"></script>
+<script>
+    async function handleFile(event) {
+        const file = event.target.files[0];
+        const buffer = await file.arrayBuffer();
+        const ast = await officeParser.parseOffice(new Uint8Array(buffer));
+        console.log((await ast.to('text')).value);
+    }
+</script>
+```
+
+> [!NOTE]
+> **File paths don't work in the browser.** Always pass a `Buffer`, `ArrayBuffer`, or `Uint8Array`.
+> Passing a path string will throw a descriptive `FEATURE_NOT_SUPPORTED_IN_BROWSER` error.
+
+### PDF Worker Configuration
+
+When parsing PDFs in the browser, a Web Worker is required. If `pdfWorkerSrc` is omitted, a jsDelivr CDN link is used automatically:
+
+```js
+// Uses default CDN worker:
+const ast = await officeParser.parseOffice(pdfArrayBuffer);
+
+// Or specify your own:
+const ast = await officeParser.parseOffice(pdfArrayBuffer, {
+    pdfWorkerSrc: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.1.200/build/pdf.worker.min.mjs'
+});
+```
+
+> [!NOTE]
+> The `pdfjs-dist` worker version must match the version bundled with `officeparser` (currently **6.1.200**).
+
+---
+
+## Troubleshooting & Common Issues
+
+| Symptom | Fix |
+|---------|-----|
+| Node.js process stays alive after finishing | Call `await officeParser.terminateOcr()` at end of script when OCR was used |
+| `"Worker not found"` in browser for PDF | Verify `pdfWorkerSrc` points to `pdf.worker.min.mjs` matching version `6.1.200` |
+| Low OCR accuracy | Verify `ocrConfig.language` matches the document language; quality depends on image resolution |
+| Out of memory on large Excel files | Call `await ast.to('text')` early and discard the AST object to allow garbage collection |
+| `md`/`html`/`csv` buffer not detected | Add `fileType: 'md'` (or `'html'`, `'csv'`) to config (these formats have no magic bytes) |
+| `IMPROPER_BUFFERS` error | Usually means no file extension and no `fileType` hint was provided for a buffer input |
+| PDF generation fails | Install the optional peer dependency: `npm install puppeteer` |
+
+For a full debugging guide, visit the [Live Documentation](https://harshankur.github.io/officeParser/#spec/debugging).
+
+---
+
+## Known Limitations
+
+1. **ODT/ODS Charts**: May show inaccurate data when the chart references external cell ranges or uses complex layout-based data.
+2. **PDF Images (Browser)**: Extracted as BMP files for cross-platform compatibility. Conversion is automatic.
+
+---
+
+## Security & Trust Boundary
+
+`officeParser` is a **parsing, generation, and conversion** library. Like any parser, its whole job
+is to open and interpret files it is handed, and those files may come from an untrusted source (a
+user upload, an email attachment, a scraped document). A parser that accepts arbitrary documents
+has a large and inherently open attack surface.
+
+I do sanitize output and apply hardening where I can: injection escaping across the
+HTML/CSS/URL/script/CSV/RTF/Markdown sinks, decompression limits, some resource and recursion
+bounds, and SSRF precautions during PDF rendering. I fix issues as I learn of them (see
+[CHANGELOG.md](CHANGELOG.md)). But this is **best-effort, not a guarantee.** A document parser of
+this size will have attack vectors I have not found or have not yet addressed, and no amount of
+internal hardening makes it safe to feed fully untrusted input without your own precautions.
+
+**Treat this as garbage in, garbage out.** The library does its best with what you give it, but
+responsibility for what you feed it, and for the effect a malicious file has on your system, rests
+with you. If you process files from untrusted sources, sanitize and validate them at your own
+boundary, and run the parsing in isolation appropriate to your threat model: sandboxing or
+containerization, memory and time limits, a low-privilege process, and the `abortSignal` and
+`decompressionLimits` options this library exposes. Do not rely on any single library's hardening
+as a complete defense.
+
+I am the sole maintainer, with no security team behind me. I take legitimate reports seriously and
+will fix what I reasonably can, but I cannot commit to a response or resolution timeline. The
+software is provided "AS IS" without warranty of any kind (see [LICENSE](LICENSE)). To report an
+issue privately, see [SECURITY.md](SECURITY.md).
+
+---
+
+**npm**: [https://npmjs.com/package/officeparser](https://npmjs.com/package/officeparser)
+
+**github**: [https://github.com/harshankur/officeParser](https://github.com/harshankur/officeParser)
+
+## Support the Project
+
+If `officeParser` has helped you save time, consider supporting its continued development. Your sponsorship helps maintain the project, add new features, and keep it robust for everyone.
+
+<a href="https://github.com/sponsors/harshankur">
+  <img src="https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github-sponsors" height="36">
+</a>
+<a href="https://www.buymeacoffee.com/harshankur">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" height="36" alt="Buy Me A Coffee">
+</a>
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+## License
+
+This project is licensed under the MIT License; see the [LICENSE](LICENSE) file for details.
