@@ -40,3 +40,4 @@ tests/ui/node_modules/
 tests/ui/test-results/
 tests/ui/playwright-report/
 tests/ui/playwright/.cache/
+graphify-out/
